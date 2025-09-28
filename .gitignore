@@ -160,3 +160,97 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# =========================================
+# Docker Compose / Containers
+# =========================================
+
+# Local Compose overrides (keep the canonical compose files tracked)
+docker-compose.override.yml
+docker-compose.*.local.yml
+docker-compose.*.dev.yml
+docker-compose.*.test.yml
+
+# Docker context & misc
+.docker/
+.docker/*
+
+# If you keep per-service envs in a docker/ folder
+docker/*.env
+
+# =========================================
+# Environment & Secrets
+# =========================================
+
+# Root env files (commit a sanitized .env.example instead)
+.env
+.env.*
+!.env.example
+
+# Common secret material
+*.secret
+*.secrets
+*.credentials
+secrets/
+**/*.key
+**/*.pem
+**/*.crt
+**/*.p12
+
+# =========================================
+# Volumes / Bind-mounted Data (per-service)
+# (Uncomment or add what you actually use)
+# =========================================
+
+# Generic local data/logs/tmp
+data/
+volumes/
+**/data/
+**/logs/
+**/tmp/
+**/.cache/
+
+# Typical service data dirs
+postgres-data/
+pgdata/
+mysql-data/
+mongo-data/
+redis-data/
+es-data/
+minio-data/
+milvus-data/
+prometheus-data/
+grafana-data/
+nats-data/
+rabbitmq-data/
+kafka-data/
+zookeeper-data/
+
+# If you mount package caches or build outputs
+.cache/
+build/
+dist/
+out/
+
+# =========================================
+# OS / Editor cruft
+# =========================================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.tmp
+*.bak
+*.old
+*.orig
+
+# IDEs
+.vscode/
+*.code-workspace
+.idea/
+
+# =========================================
+# Optional: Compose-generated artifacts
+# (Usually none are created alongside, but keep here for safety)
+# =========================================
+compose-cache/
