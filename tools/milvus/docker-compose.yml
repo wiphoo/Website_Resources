@@ -1,0 +1,172 @@
+name: milvus-telemetry
+
+networks:
+  milvus-net:
+
+volumes:
+  etcd-data:
+  minio-data:
+  milvus-data:
+  prometheus-data:
+  grafana-data:
+
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.13
+    container_name: etcd
+    environment:
+      ETCD_NAME: etcd
+      ETCD_DATA_DIR: /etcd
+      ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd:2380
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+      ETCD_INITIAL_CLUSTER: etcd=http://etcd:2380
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_CLUSTER_TOKEN: etcd-cluster
+      ETCD_AUTO_COMPACTION_RETENTION: '1'
+      ETCD_QUOTA_BACKEND_BYTES: '4294967296'
+      ETCD_SNAPSHOT_COUNT: '50000'
+      ETCD_ENABLE_PPROF: 'false'
+    networks: [milvus-net]
+    volumes:
+      - etcd-data:/etcd
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'etcdctl',
+          'endpoint',
+          'health',
+          '--endpoints=http://localhost:2379',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: '50m'
+        max-file: '3'
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
+      MINIO_REGION: us-east-1
+      MINIO_BROWSER: on
+    command: minio server /data --address :9000 --console-address :9001
+    networks: [milvus-net]
+    ports:
+      - '19000:9000' # S3 API -> host:19000
+      - '19001:9001' # Console -> host:19001
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: '100m'
+        max-file: '3'
+    restart: unless-stopped
+
+  milvus-standalone:
+    image: milvusdb/milvus:v2.6.2
+    container_name: milvus-standalone
+    depends_on:
+      etcd: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: minioadmin
+      MINIO_SECRET_ACCESS_KEY: minioadmin
+      MINIO_USE_SSL: 'false'
+      MINIO_BUCKET_NAME: milvus-bucket
+      METRICS_ENABLE: 'true' # exposes metrics on :9091 (internal)
+    command: ['milvus', 'run', 'standalone']
+    networks: [milvus-net]
+    ports:
+      - '19530:19530' # Milvus gRPC for clients on host
+      - '9091:9091' # Milvus HTTP for Prometheus & REST on host
+    volumes:
+      - milvus-data:/var/lib/milvus
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: '4'
+        reservations:
+          memory: 2G
+          cpus: '1'
+    ulimits:
+      nofile: { soft: 65535, hard: 65535 }
+      memlock: { soft: -1, hard: -1 }
+    logging:
+      driver: json-file
+      options:
+        max-size: '100m'
+        max-file: '3'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -f http://localhost:9091/metrics || exit 1']
+      interval: 20s
+      timeout: 10s
+      retries: 8
+      start_period: 60s
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus
+    depends_on:
+      milvus-standalone: { condition: service_healthy }
+    networks: [milvus-net]
+    ports:
+      - '9090:9090'
+    volumes:
+      - prometheus-data:/prometheus
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=10GB
+      - --web.enable-lifecycle
+    logging:
+      driver: json-file
+      options:
+        max-size: '50m'
+        max-file: '3'
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: grafana
+    depends_on: [prometheus]
+    networks: [milvus-net]
+    ports:
+      - '3000:3000'
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_INSTALL_PLUGINS: 'grafana-clock-panel,grafana-simple-json-datasource'
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: '50m'
+        max-file: '3'
+    restart: unless-stopped
