@@ -1,0 +1,4 @@
+elasticsearch>=9.0
+pandas>=2.0
+matplotlib>=3.8
+jupyterlab>=4.0
