@@ -93,6 +93,17 @@ def main() -> None:
     parser.add_argument("--out", default="results/onnx_cpu_fp32.jsonl")
     args = parser.parse_args()
 
+    for name, val in [
+        ("batch_size", args.batch_size),
+        ("max_length", args.max_length),
+        ("target_words", args.target_words),
+        ("batches", args.batches),
+    ]:
+        if val <= 0:
+            parser.error(f"--{name} must be > 0 (got {val})")
+    if args.warmup < 0:
+        parser.error(f"--warmup must be >= 0 (got {args.warmup})")
+
     model_dir = Path(args.model_dir)
     onnx_path = model_dir / "model.onnx"
     out_path = Path(args.out)
@@ -162,8 +173,6 @@ def main() -> None:
         "device": "cpu",
         "precision": "fp32",
         "dataset": args.dataset,
-        "machine": platform.node(),
-        "platform": platform.platform(),
         "python_version": platform.python_version(),
         "onnxruntime_version": ort.__version__,
         "active_providers": session.get_providers(),

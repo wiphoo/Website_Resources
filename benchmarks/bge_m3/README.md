@@ -148,7 +148,7 @@ print(df[["dataset", "batch_size", "max_length", "model_tokens_per_sec", "e2e_to
 
 ## Project layout
 
-```
+```text
 benchmarks/bge_m3/
 ├── SPEC.md                         # milestone specification
 ├── .gitignore
