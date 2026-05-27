@@ -9,6 +9,8 @@ import numpy as np
 import onnxruntime as ort
 from transformers import AutoTokenizer
 
+from machine_metadata import collect_machine_metadata
+
 warnings.filterwarnings("ignore", message=".*regex pattern.*")
 
 
@@ -118,6 +120,8 @@ def main() -> None:
         sess_options=session_options,
         providers=["CPUExecutionProvider"],
     )
+
+    machine_metadata = collect_machine_metadata(session=session)
 
     texts = make_texts(args.batch_size, args.target_words, args.dataset)
 
@@ -234,6 +238,7 @@ def main() -> None:
         "end_to_end_latency_ms_avg": statistics.mean(e2e_latencies) * 1000,
         "end_to_end_latency_ms_p50": percentile(e2e_latencies, 0.50) * 1000,
         "end_to_end_latency_ms_p95": percentile(e2e_latencies, 0.95) * 1000,
+        "machine_metadata": machine_metadata,
     }
 
     with out_path.open("a", encoding="utf-8") as f:
