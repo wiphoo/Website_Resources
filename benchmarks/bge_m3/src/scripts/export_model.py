@@ -2,7 +2,6 @@ import argparse
 import sys
 from pathlib import Path
 
-from optimum.onnxruntime import ORTModelForFeatureExtraction
 from transformers import AutoTokenizer
 
 
@@ -15,22 +14,27 @@ def export_model(
     optimize: str = "O3",
     dtype: str = "float32",
 ) -> None:
+    import subprocess
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Loading model '{model_name}'...")
-    model = ORTModelForFeatureExtraction.from_pretrained(
-        model_name,
-        export=True,
-        provider="CPUExecutionProvider",
-    )
-
-    print(f"Exporting ONNX model to '{output_dir}' with optimization {optimize}...")
-    model.save_pretrained(output_dir, optimize=optimize, dtype=dtype)
-
-    print(f"Exporting tokenizer to '{output_dir}'...")
+    print(f"Loading tokenizer for '{model_name}'...")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.save_pretrained(output_dir)
+
+    cmd = [
+        sys.executable, "-m", "optimum-cli", "export", "onnx",
+        "--model", model_name,
+        "--task", "feature-extraction",
+        "--dtype", dtype,
+        "--optimize", optimize.lower(),
+        output_dir,
+    ]
+    print(f"Running: {' '.join(cmd)}")
+    result = subprocess.run(cmd, capture_output=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"optimum-cli export failed with code {result.returncode}")
 
     print("Done.")
     print(f"Files in {output_dir}:")
