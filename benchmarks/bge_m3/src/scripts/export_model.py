@@ -57,9 +57,9 @@ def export_model(
     # so we rely on validation + shell=False for safety instead.
     exe = shutil.which("optimum-cli")
     cmd = (
-        [exe, "export", "onnx", "--model", model_name, "--task", "feature-extraction", "--dtype", dtype, "--optimize", optimize.lower(), str(output_dir)]
+        [exe, "export", "onnx", "--model", model_name, "--task", "feature-extraction", "--dtype", dtype, "--optimize", optimize, str(output_dir)]
         if exe
-        else [sys.executable, "-m", "optimum", "export", "onnx", "--model", model_name, "--task", "feature-extraction", "--dtype", dtype, "--optimize", optimize.lower(), str(output_dir)]
+        else [sys.executable, "-m", "optimum", "export", "onnx", "--model", model_name, "--task", "feature-extraction", "--dtype", dtype, "--optimize", optimize, str(output_dir)]
     )
     print(f"Running: {' '.join(shlex.quote(c) for c in cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(output_dir.parent))
