@@ -20,7 +20,7 @@ def export_model(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Loading tokenizer for '{model_name}'...")
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, fix_mistral_regex=True)
     tokenizer.save_pretrained(output_dir)
 
     cmd = [

@@ -98,7 +98,7 @@ def main() -> None:
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
+    tokenizer = AutoTokenizer.from_pretrained(str(model_dir), fix_mistral_regex=True)
 
     session_options = ort.SessionOptions()
     session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
