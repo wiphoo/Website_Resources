@@ -1,4 +1,5 @@
 import argparse
+import shlex
 import sys
 from pathlib import Path
 
@@ -6,6 +7,19 @@ from transformers import AutoTokenizer
 
 
 SUPPORTED_OPTIMIZE = {"O0", "O1", "O2", "O3"}
+VALID_DTYPE = {"float32", "float16", "int8"}
+
+
+def _validate_model_name(name: str) -> None:
+    if name.startswith("-") or "\x00" in name:
+        raise ValueError(f"Invalid model name: {name!r}")
+
+
+def _validate_output_dir(path: Path) -> Path:
+    resolved = path.resolve()
+    if "\x00" in str(path):
+        raise ValueError("output_dir contains null byte")
+    return resolved
 
 
 def export_model(
@@ -16,8 +30,14 @@ def export_model(
 ) -> None:
     import subprocess
 
-    output_dir = Path(output_dir)
+    _validate_model_name(model_name)
+    output_dir = _validate_output_dir(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    if optimize.upper() not in SUPPORTED_OPTIMIZE:
+        raise ValueError(f"optimize must be one of {SUPPORTED_OPTIMIZE}, got {optimize}")
+    if dtype not in VALID_DTYPE:
+        raise ValueError(f"dtype must be one of {VALID_DTYPE}, got {dtype}")
 
     print(f"Loading tokenizer for '{model_name}'...")
     tokenizer = AutoTokenizer.from_pretrained(model_name, fix_mistral_regex=True)
@@ -29,12 +49,15 @@ def export_model(
         "--task", "feature-extraction",
         "--dtype", dtype,
         "--optimize", optimize.lower(),
-        output_dir,
+        str(output_dir),
     ]
-    print(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=False)
+    print(f"Running: {' '.join(shlex.quote(c) for c in cmd)}")
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(output_dir.parent))
     if result.returncode != 0:
-        raise RuntimeError(f"optimum-cli export failed with code {result.returncode}")
+        raise RuntimeError(
+            f"optimum-cli export failed with code {result.returncode}\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
 
     print("Done.")
     print(f"Files in {output_dir}:")
