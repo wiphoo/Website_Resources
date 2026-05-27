@@ -166,7 +166,7 @@ def main() -> None:
     model_time = sum(model_latencies)
     e2e_time = sum(e2e_latencies)
 
-result = {
+    result = {
         "model": "BAAI/bge-m3",
         "runtime": "onnxruntime",
         "provider": "CPUExecutionProvider",

@@ -1,5 +1,7 @@
 import argparse
 import shlex
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -35,8 +37,6 @@ def export_model(
     optimize: str = "O3",
     dtype: str = "float32",
 ) -> None:
-    import subprocess
-
     _validate_model_name(model_name)
     output_dir = _validate_output_dir(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -50,19 +50,17 @@ def export_model(
     tokenizer = AutoTokenizer.from_pretrained(model_name, fix_mistral_regex=True)
     tokenizer.save_pretrained(output_dir)
 
-    cmd = [
-        sys.executable, "-m", "optimum-cli", "export", "onnx",
-        "--model", model_name,
-        "--task", "feature-extraction",
-        "--dtype", dtype,
-        "--optimize", optimize.lower(),
-        str(output_dir),
-    ]
+    exe = shutil.which("optimum-cli")
+    cmd = (
+        [exe, "export", "onnx", "--model", model_name, "--task", "feature-extraction", "--dtype", dtype, "--optimize", optimize.lower(), str(output_dir)]
+        if exe
+        else [sys.executable, "-m", "optimum", "export", "onnx", "--model", model_name, "--task", "feature-extraction", "--dtype", dtype, "--optimize", optimize.lower(), str(output_dir)]
+    )
     print(f"Running: {' '.join(shlex.quote(c) for c in cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(output_dir.parent))
     if result.returncode != 0:
         raise RuntimeError(
-            f"optimum-cli export failed with code {result.returncode}\n"
+            f"optimum export failed with code {result.returncode}\n"
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
 
