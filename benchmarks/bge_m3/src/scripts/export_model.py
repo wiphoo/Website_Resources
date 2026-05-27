@@ -50,6 +50,11 @@ def export_model(
     tokenizer = AutoTokenizer.from_pretrained(model_name, fix_mistral_regex=True)
     tokenizer.save_pretrained(output_dir)
 
+    # Build command: model_name is validated (_validate_model_name) and output_dir is
+    # resolved (_validate_output_dir). optimize/dtype are allowlisted above.
+    # subprocess.run uses shell=False (list form) so shell injection is impossible.
+    # shlex.quote on model_name breaks optimum-cli (treats quoted '/' as literal chars),
+    # so we rely on validation + shell=False for safety instead.
     exe = shutil.which("optimum-cli")
     cmd = (
         [exe, "export", "onnx", "--model", model_name, "--task", "feature-extraction", "--dtype", dtype, "--optimize", optimize.lower(), str(output_dir)]
