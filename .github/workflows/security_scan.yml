@@ -19,10 +19,10 @@ jobs:
         runs-on: ubuntu-24.04
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
             - name: Generate Trivy Vulnerability Report
-              uses: aquasecurity/trivy-action@0.29.0
+              uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
               with:
                 scan-type: "fs"
                 scan-ref: .
@@ -31,12 +31,12 @@ jobs:
                 exit-code: 0
 
             - name: Upload Trivy scan results to GitHub Security tab
-              uses: github/codeql-action/upload-sarif@v3
+              uses: github/codeql-action/upload-sarif@f52b05f4acaaa234e44466e66d29050e135ea9ef # v4.36.0
               with:
                 sarif_file: 'trivy-results.sarif'
-        
+
             - name: Fail build on High/Criticial Vulnerabilities
-              uses: aquasecurity/trivy-action@0.29.0
+              uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
               with:
                 scan-type: "fs"
                 scan-ref: .
@@ -46,4 +46,3 @@ jobs:
                 exit-code: 1
                 # On a subsequent call to the action we know trivy is already installed so can skip this
                 skip-setup-trivy: true
-    
