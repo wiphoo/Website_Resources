@@ -47,7 +47,7 @@ def export_model(
         raise ValueError(f"dtype must be one of {VALID_DTYPE}, got {dtype}")
 
     print(f"Loading tokenizer for '{model_name}'...")
-    tokenizer = AutoTokenizer.from_pretrained(model_name, fix_mistral_regex=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.save_pretrained(output_dir)
 
     # Build command: model_name is validated (_validate_model_name) and output_dir is
