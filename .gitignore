@@ -1,4 +1,7 @@
-# Byte-compiled / optimized / DLL files
+# BGE-M3 ONNX model artifacts (regenerated at runtime via export_model.py)
+benchmarks/bge_m3/src/models/
+benchmarks/bge_m3/src/results/*.jsonl
+!benchmarks/bge_m3/src/results/.gitkeep
 __pycache__/
 *.py[cod]
 *$py.class
@@ -124,6 +127,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv*
 env/
 venv/
 ENV/
