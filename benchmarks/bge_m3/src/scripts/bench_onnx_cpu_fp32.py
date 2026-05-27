@@ -1,7 +1,6 @@
 import warnings
 import argparse
 import json
-import platform
 import statistics
 import time
 from pathlib import Path
@@ -122,24 +121,64 @@ def main() -> None:
 
     texts = make_texts(args.batch_size, args.target_words, args.dataset)
 
+    encoded_warmup = tokenizer(
+        texts,
+        padding=True,
+        truncation=True,
+        max_length=args.max_length,
+        return_tensors="np",
+    )
+    inputs_warmup = make_inputs(session, encoded_warmup)
+
     for _ in range(args.warmup):
-        encoded = tokenizer(
+        tokenizer(
             texts,
             padding=True,
             truncation=True,
             max_length=args.max_length,
             return_tensors="np",
         )
-        inputs = make_inputs(session, encoded)
-        session.run(None, inputs)
+        session.run(None, inputs_warmup)
 
-    model_latencies = []
+    # Phase 1: Tokenization-only
+    tokenize_latencies = []
+    for _ in range(args.batches):
+        start = time.perf_counter()
+        tokenizer(
+            texts,
+            padding=True,
+            truncation=True,
+            max_length=args.max_length,
+            return_tensors="np",
+        )
+        elapsed = time.perf_counter() - start
+        tokenize_latencies.append(elapsed)
+
+    # Phase 2: Embedding-only (tokenize once, time embedding only)
+    encoded_once = tokenizer(
+        texts,
+        padding=True,
+        truncation=True,
+        max_length=args.max_length,
+        return_tensors="np",
+    )
+    real_tokens_once = int(encoded_once["attention_mask"].sum())
+    inputs_once = make_inputs(session, encoded_once)
+
+    embedding_latencies = []
+    for _ in range(args.batches):
+        start = time.perf_counter()
+        session.run(None, inputs_once)
+        elapsed = time.perf_counter() - start
+        embedding_latencies.append(elapsed)
+
+    # Phase 3: End-to-end
     e2e_latencies = []
     total_items = 0
     total_tokens = 0
 
     for _ in range(args.batches):
-        e2e_start = time.perf_counter()
+        start = time.perf_counter()
 
         encoded = tokenizer(
             texts,
@@ -148,23 +187,21 @@ def main() -> None:
             max_length=args.max_length,
             return_tensors="np",
         )
-
         real_tokens = int(encoded["attention_mask"].sum())
         inputs = make_inputs(session, encoded)
-
-        model_start = time.perf_counter()
         session.run(None, inputs)
-        model_elapsed = time.perf_counter() - model_start
 
-        e2e_elapsed = time.perf_counter() - e2e_start
-
-        model_latencies.append(model_elapsed)
-        e2e_latencies.append(e2e_elapsed)
+        elapsed = time.perf_counter() - start
+        e2e_latencies.append(elapsed)
         total_items += args.batch_size
         total_tokens += real_tokens
 
-    model_time = sum(model_latencies)
+    tokenize_time = sum(tokenize_latencies)
+    embedding_time = sum(embedding_latencies)
     e2e_time = sum(e2e_latencies)
+
+    total_items_phase2 = args.batches * args.batch_size
+    total_tokens_phase2 = real_tokens_once * args.batches
 
     result = {
         "model": "BAAI/bge-m3",
@@ -173,9 +210,7 @@ def main() -> None:
         "device": "cpu",
         "precision": "fp32",
         "dataset": args.dataset,
-        "python_version": platform.python_version(),
-        "onnxruntime_version": ort.__version__,
-        "active_providers": session.get_providers(),
+        "language": args.dataset,
         "batch_size": args.batch_size,
         "max_length": args.max_length,
         "target_words": args.target_words,
@@ -184,16 +219,21 @@ def main() -> None:
         "total_items": total_items,
         "total_tokens": total_tokens,
         "avg_tokens_per_item": total_tokens / total_items,
-        "model_tokens_per_sec": total_tokens / model_time,
-        "e2e_tokens_per_sec": total_tokens / e2e_time,
-        "model_embeddings_per_sec": total_items / model_time,
-        "e2e_embeddings_per_sec": total_items / e2e_time,
-        "model_latency_ms_avg": statistics.mean(model_latencies) * 1000,
-        "model_latency_ms_p50": percentile(model_latencies, 0.50) * 1000,
-        "model_latency_ms_p95": percentile(model_latencies, 0.95) * 1000,
-        "e2e_latency_ms_avg": statistics.mean(e2e_latencies) * 1000,
-        "e2e_latency_ms_p50": percentile(e2e_latencies, 0.50) * 1000,
-        "e2e_latency_ms_p95": percentile(e2e_latencies, 0.95) * 1000,
+        "tokenize_tokens_per_sec": total_tokens_phase2 / tokenize_time,
+        "embedding_tokens_per_sec": total_tokens_phase2 / embedding_time,
+        "end_to_end_tokens_per_sec": total_tokens / e2e_time,
+        "tokenize_items_per_sec": total_items_phase2 / tokenize_time,
+        "embedding_items_per_sec": total_items_phase2 / embedding_time,
+        "end_to_end_items_per_sec": total_items / e2e_time,
+        "tokenize_latency_ms_avg": statistics.mean(tokenize_latencies) * 1000,
+        "tokenize_latency_ms_p50": percentile(tokenize_latencies, 0.50) * 1000,
+        "tokenize_latency_ms_p95": percentile(tokenize_latencies, 0.95) * 1000,
+        "embedding_latency_ms_avg": statistics.mean(embedding_latencies) * 1000,
+        "embedding_latency_ms_p50": percentile(embedding_latencies, 0.50) * 1000,
+        "embedding_latency_ms_p95": percentile(embedding_latencies, 0.95) * 1000,
+        "end_to_end_latency_ms_avg": statistics.mean(e2e_latencies) * 1000,
+        "end_to_end_latency_ms_p50": percentile(e2e_latencies, 0.50) * 1000,
+        "end_to_end_latency_ms_p95": percentile(e2e_latencies, 0.95) * 1000,
     }
 
     with out_path.open("a", encoding="utf-8") as f:
