@@ -135,7 +135,7 @@ Key metrics:
 Open the notebook and load results:
 
 ```bash
-uv run jupyter notebook notebooks/plot_onnx_cpu_fp32.ipynb
+uv run jupyter notebook archived/plot_onnx_cpu_fp32.ipynb
 ```
 
 Or from Python:
