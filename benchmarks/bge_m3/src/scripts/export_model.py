@@ -10,9 +10,10 @@ SUPPORTED_OPTIMIZE = {"O0", "O1", "O2", "O3"}
 VALID_DTYPE = {"float32", "float16", "int8"}
 
 
-def _validate_model_name(name: str) -> None:
+def _validate_model_name(name: str) -> str:
     if name.startswith("-") or "\x00" in name:
         raise ValueError(f"Invalid model name: {name!r}")
+    return name
 
 
 def _validate_output_dir(path: Path) -> Path:
@@ -20,6 +21,12 @@ def _validate_output_dir(path: Path) -> Path:
     if "\x00" in str(path):
         raise ValueError("output_dir contains null byte")
     return resolved
+
+
+def _model_name_type(value: str) -> str:
+    if value.startswith("-") or "\x00" in value:
+        raise argparse.ArgumentTypeError(f"invalid model name: {value!r}")
+    return value
 
 
 def export_model(
@@ -71,6 +78,7 @@ def main() -> int:
     parser.add_argument(
         "--model",
         default="BAAI/bge-m3",
+        type=_model_name_type,
         help="HuggingFace model name or local path",
     )
     parser.add_argument(
