@@ -94,9 +94,11 @@ def main() -> int:
     try:
         export_model(args.model, args.output, args.optimize, args.dtype)
         return 0
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
+    except (KeyboardInterrupt, SystemExit):
+        raise
 
 
 if __name__ == "__main__":
