@@ -82,6 +82,7 @@ def main() -> int:
     parser.add_argument(
         "--output",
         default="models/bge-m3-fp32",
+        type=Path,
         help="Output directory for ONNX model and tokenizer",
     )
     parser.add_argument(
