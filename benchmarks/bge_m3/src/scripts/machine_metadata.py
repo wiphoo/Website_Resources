@@ -18,6 +18,24 @@ def run_command(args: list[str]) -> tuple[int, str, str]:
     return proc.returncode, proc.stdout, proc.stderr
 
 
+def parse_int(value: str, default: int | None = None) -> int | None:
+    if not value:
+        return default
+    try:
+        return int(value.strip())
+    except ValueError:
+        return default
+
+
+def parse_float(value: str, default: float | None = None) -> float | None:
+    if not value:
+        return default
+    try:
+        return float(value.strip())
+    except ValueError:
+        return default
+
+
 def collect_lscpu_json() -> dict | None:
     if shutil.which("lscpu") is None:
         return None
@@ -78,10 +96,10 @@ def collect_cpu_metadata() -> dict:
         cores_per_socket_str = get_field("Core(s) per socket", "0")
         sockets_str = get_field("Socket(s)", "1")
 
-        threads_per_core = int(threads_per_core_str) if threads_per_core_str else 1
-        cores_per_socket = int(cores_per_socket_str) if cores_per_socket_str else 0
-        sockets = int(sockets_str) if sockets_str else 1
-        physical_cores = cores_per_socket * sockets
+        threads_per_core = parse_int(threads_per_core_str, 1)
+        cores_per_socket = parse_int(cores_per_socket_str, 0)
+        sockets = parse_int(sockets_str, 1)
+        physical_cores = (cores_per_socket or 0) * (sockets or 1)
 
         max_mhz_str = get_field("CPU max MHz", "0")
         min_mhz_str = get_field("CPU min MHz", "0")
@@ -93,12 +111,12 @@ def collect_cpu_metadata() -> dict:
             "architecture": get_field("Architecture", platform.machine()),
             "sockets": sockets,
             "physical_cores": physical_cores,
-            "logical_cores": int(get_field("CPU(s)", os.cpu_count() or 0) or os.cpu_count() or 0),
+            "logical_cores": parse_int(get_field("CPU(s)"), os.cpu_count() or 0),
             "threads_per_core": threads_per_core,
             "cores_per_socket": cores_per_socket,
-            "min_mhz": float(min_mhz_str) if min_mhz_str else None,
-            "max_mhz": float(max_mhz_str) if max_mhz_str else None,
-            "current_mhz": float(current_mhz_str) if current_mhz_str else None,
+            "min_mhz": parse_float(min_mhz_str),
+            "max_mhz": parse_float(max_mhz_str),
+            "current_mhz": parse_float(current_mhz_str),
             "cache_l1d": get_field("L1d cache"),
             "cache_l1i": get_field("L1i cache"),
             "cache_l2": get_field("L2 cache"),
@@ -296,14 +314,24 @@ def collect_gpu_metadata() -> dict:
 
         index, name, uuid, driver_version, memory_total_mb, power_limit_watts = parts
 
-        devices.append({
-            "index": int(index),
+        device = {
+            "index": parse_int(index),
             "name": name,
             "uuid": uuid,
             "driver_version": driver_version,
-            "memory_total_bytes": int(float(memory_total_mb) * 1024 * 1024),
-            "power_limit_watts": float(power_limit_watts),
-        })
+            "memory_total_bytes": None,
+            "power_limit_watts": None,
+        }
+
+        mb = parse_float(memory_total_mb)
+        if mb is not None:
+            device["memory_total_bytes"] = int(mb * 1024 * 1024)
+
+        watts = parse_float(power_limit_watts)
+        if watts is not None:
+            device["power_limit_watts"] = watts
+
+        devices.append(device)
 
     return {
         "available": bool(devices),

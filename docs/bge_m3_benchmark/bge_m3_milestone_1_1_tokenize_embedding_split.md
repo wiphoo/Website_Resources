@@ -606,11 +606,14 @@ If long texts have low embedding throughput:
 
 ```text
 Milestone 1.2:
-  Add ONNX CPU INT8 comparison using the same stage-breakdown schema.
+  Add machine metadata to benchmark harness (CPU model, cores, flags, memory, runtime, container, Kubernetes, GPU placeholder).
 
 Milestone 1.3:
-  Add ONNX CUDA FP32/FP16 using the same stage-breakdown schema.
+  Add benchmark validation and smoke test.
 
 Milestone 1.4:
-  Add OpenVINO CPU FP32/INT8 using the same stage-breakdown schema.
+  Add ONNX CPU INT8 comparison using the same metadata schema.
+
+Milestone 1.5:
+  Add ONNX CUDA FP32/FP16 with GPU metadata enabled.
 ```

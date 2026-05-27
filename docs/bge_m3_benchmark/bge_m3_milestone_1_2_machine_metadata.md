@@ -573,7 +573,7 @@ def collect_gpu_metadata() -> dict:
 Update:
 
 ```text
-scripts/bench_onnx_cpu_fp32_stage_breakdown.py
+benchmarks/bge_m3/src/scripts/bench_onnx_cpu_fp32.py
 ```
 
 Add:
@@ -645,7 +645,7 @@ result.update(flatten_machine_metadata(machine_metadata))
 Update:
 
 ```text
-notebooks/plot_onnx_cpu_fp32_stage_breakdown.ipynb
+benchmarks/bge_m3/src/notebooks/plot_onnx_cpu_fp32.ipynb
 ```
 
 Add metadata summary cell:
@@ -708,7 +708,7 @@ summary
 Run:
 
 ```bash
-uv run python scripts/bench_onnx_cpu_fp32_stage_breakdown.py   --model-dir models/bge-m3-fp32   --dataset th   --batch-size 4   --max-length 128   --target-words 64   --warmup 1   --batches 2   --out results/onnx_cpu_fp32_stage_breakdown.jsonl
+cd benchmarks/bge_m3/src && uv run python scripts/bench_onnx_cpu_fp32.py   --model-dir models/bge-m3-fp32   --dataset th   --batch-size 4   --max-length 128   --target-words 64   --warmup 1   --batches 2   --out results/onnx_cpu_fp32.jsonl
 ```
 
 Inspect nested CPU metadata:

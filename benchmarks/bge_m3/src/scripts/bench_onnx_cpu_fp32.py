@@ -121,7 +121,10 @@ def main() -> None:
         providers=["CPUExecutionProvider"],
     )
 
-    machine_metadata = collect_machine_metadata(session=session)
+    try:
+        machine_metadata = collect_machine_metadata(session=session)
+    except Exception as e:
+        machine_metadata = {"error": str(e)}
 
     texts = make_texts(args.batch_size, args.target_words, args.dataset)
 
