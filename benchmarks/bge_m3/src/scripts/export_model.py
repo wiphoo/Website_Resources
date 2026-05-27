@@ -51,10 +51,12 @@ def export_model(
     tokenizer.save_pretrained(output_dir)
 
     exe = shutil.which("optimum-cli")
+    quoted_model = shlex.quote(model_name)
+    quoted_output = shlex.quote(str(output_dir))
     cmd = (
-        [exe, "export", "onnx", "--model", model_name, "--task", "feature-extraction", "--dtype", dtype, "--optimize", optimize.lower(), str(output_dir)]
+        [exe, "export", "onnx", "--model", quoted_model, "--task", "feature-extraction", "--dtype", dtype, "--optimize", optimize.lower(), quoted_output]
         if exe
-        else [sys.executable, "-m", "optimum", "export", "onnx", "--model", model_name, "--task", "feature-extraction", "--dtype", dtype, "--optimize", optimize.lower(), str(output_dir)]
+        else [sys.executable, "-m", "optimum", "export", "onnx", "--model", quoted_model, "--task", "feature-extraction", "--dtype", dtype, "--optimize", optimize.lower(), quoted_output]
     )
     print(f"Running: {' '.join(shlex.quote(c) for c in cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(output_dir.parent))
