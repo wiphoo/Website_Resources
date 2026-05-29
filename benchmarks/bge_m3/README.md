@@ -57,7 +57,6 @@ uv run python scripts/bench_onnx_cpu_fp32.py \
   --target-words 64 \
   --warmup 1 \
   --batches 2 \
-  --validate \
   --out ../results/onnx_cpu_fp32.jsonl
 ```
 
@@ -178,9 +177,44 @@ Key metrics:
 
 Latency columns: `*_latency_ms_p95` — p95 latency in milliseconds for each stage.
 
+## Validation
+
+Validation is enabled by default. Every run checks:
+
+1. **ONNX output inspection** — output names and shapes match expected schema
+2. **Embedding extraction** — CLS pooling over `last_hidden_state` (BGE-M3 ONNX export has no `sentence_embedding` layer)
+3. **Shape / NaN / Inf** — embedding dimension = 1024, no NaN/Inf values
+4. **L2 norm** — mean norm ≈ 1.0 (enforced when normalization is on)
+5. **Reference stability** — same ONNX session run twice on 20 validation texts; row-wise cosine similarity ≥ 0.999
+6. **Retrieval overlap** — self-retrieval on 20-text English observability corpus; top-5 nearest-neighbor overlap ≥ 0.99
+
+**Disable validation** (faster benchmarks, skip correctness checks):
+
+```bash
+uv run python scripts/bench_onnx_cpu_fp32.py \
+  --model-dir models/bge-m3-fp32 \
+  --dataset mixed \
+  --batch-size 4 \
+  --max-length 128 \
+  --target-words 64 \
+  --warmup 1 \
+  --batches 2 \
+  --no-validate \
+  --out ../results/onnx_cpu_fp32.jsonl
+```
+
+**Other validation flags**:
+
+```bash
+--expected-embedding-dim 1024   # default; change if using a different model
+--no-normalize                  # disable L2 normalization (raw embeddings)
+```
+
+The 20-text validation corpus covers distinct observability concepts (Prometheus metrics, Kubernetes, Istio, etc.) to ensure non-trivial retrieval ordering. k=5 is enforced as the discriminative threshold — k=10 would cover the full corpus, making overlap trivially 1.0.
+
 ## Viewing results
 
-Open the active notebook (prefers `notebooks/` if available, falls back to `src/notebooks/`):
+Open the active notebook:
 
 ```bash
 # From project root
