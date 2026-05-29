@@ -164,7 +164,7 @@ Each run writes one JSON object per line (JSONL). With `--validate` (default), e
 | `embedding_inf_count` | Count of Inf values in embeddings |
 | `embedding_norm_mean` | Mean L2 norm (should be ~1.0 if normalized) |
 | `reference_cosine_similarity_mean` | Self-comparison cosine similarity mean (≥0.999 for FP32) |
-| `retrieval_top5_overlap` | Self-retrieval top-5 overlap on 20-text corpus (≥0.99 for FP32) |
+| `retrieval_top5_overlap` | Self-retrieval top-5 overlap on 21-text corpus (≥0.99 for FP32) |
 | `validation_errors` | List of validation errors (empty if passed) |
 
 Key metrics:
@@ -185,8 +185,8 @@ Validation is enabled by default. Every run checks:
 2. **Embedding extraction** — CLS pooling over `last_hidden_state` (BGE-M3 ONNX export has no `sentence_embedding` layer)
 3. **Shape / NaN / Inf** — embedding dimension = 1024, no NaN/Inf values
 4. **L2 norm** — mean norm ≈ 1.0 (enforced when normalization is on)
-5. **Reference stability** — same ONNX session run twice on 20 validation texts; row-wise cosine similarity ≥ 0.999
-6. **Retrieval overlap** — self-retrieval on 20-text English observability corpus; top-5 nearest-neighbor overlap ≥ 0.99
+5. **Reference stability** — same ONNX session run twice on 21 validation texts; row-wise cosine similarity ≥ 0.999
+6. **Retrieval overlap** — self-retrieval on 21-text English/Thai/mixed observability corpus; top-5 nearest-neighbor overlap ≥ 0.99
 
 **Disable validation** (faster benchmarks, skip correctness checks):
 
@@ -210,7 +210,7 @@ uv run python scripts/bench_onnx_cpu_fp32.py \
 --no-normalize                  # disable L2 normalization (raw embeddings)
 ```
 
-The 20-text validation corpus covers distinct observability concepts (Prometheus metrics, Kubernetes, Istio, etc.) to ensure non-trivial retrieval ordering. k=5 is enforced as the discriminative threshold — k=10 would cover the full corpus, making overlap trivially 1.0.
+The 21-text validation corpus covers distinct observability concepts (Prometheus metrics, Kubernetes, Istio, Thai, mixed) to ensure non-trivial retrieval ordering. k=5 is enforced as the discriminative threshold — k=10 would cover the full corpus, making overlap trivially 1.0.
 
 ## Viewing results
 
