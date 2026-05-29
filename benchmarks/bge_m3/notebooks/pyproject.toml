@@ -1,0 +1,11 @@
+[project]
+name = "bge-m3-notebooks"
+version = "0.1.0"
+description = "BGE-M3 benchmark analysis notebooks"
+requires-python = ">=3.14"
+dependencies = [
+    "pandas>=3.0.0",
+    "matplotlib>=3.10.0",
+    "numpy>=2.0.0",
+    "jupyter>=1.1.0",
+]
