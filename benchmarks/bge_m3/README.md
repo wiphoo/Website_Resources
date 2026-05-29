@@ -265,7 +265,7 @@ benchmarks/bge_m3/
         ├── bench_onnx_cpu_stage_breakdown.py  # FP32/INT8 benchmark (supports --precision, --model-variant)
         ├── export_model.py          # model export script
         ├── quantize_onnx_dynamic_int8.py  # INT8 quantization
-        ├── run_milestone_2_matrix.sh       # 72-run benchmark matrix
+        ├── run_onnx_cpu_benchmark_matrix.sh # 72-run benchmark matrix
         ├── machine_metadata.py      # machine metadata collection
         └── validation.py           # embedding validation (per-length INT8 thresholds)
 ```
@@ -311,8 +311,8 @@ uv run python scripts/quantize_onnx_dynamic_int8.py \
 ### Run benchmark matrix (72 runs: 36 FP32 + 36 INT8)
 
 ```bash
-chmod +x scripts/run_milestone_2_matrix.sh
-./scripts/run_milestone_2_matrix.sh
+chmod +x scripts/run_onnx_cpu_benchmark_matrix.sh
+./scripts/run_onnx_cpu_benchmark_matrix.sh
 ```
 
 ### Smoke tests
