@@ -8,10 +8,20 @@ VALIDATION_TEXTS = [
     "prometheus_tsdb_head_series time series count",
     "alert high error rate api service",
     "dashboard latency and availability overview",
-    "เมตริก latency ของ api service",
-    "แจ้งเตือน error rate สูงในระบบ",
-    "dashboard สำหรับตรวจสอบ pod และ namespace",
-    "runbook สำหรับแก้ไขปัญหา service latency",
+    "kubernetes pod cpu usage seconds total metric",
+    "prometheus alertmanager notification queue full",
+    "grpc request duration milliseconds bucket histogram",
+    "nginx ingress controller ssl certificate expiry",
+    "etcd database compaction and defragmentation operations",
+    "kubernetes hpa scaling events and replica count",
+    "container memory working set bytes exhausted",
+    "kubernetes endpoint slice changes discovery",
+    " Istio Envoy proxy access log format and fields",
+    "PromQL instant vector range vector selector syntax",
+    "OpenTelemetry collector batch span processor queue",
+    "Kubernetes custom resource definition schema validation",
+    "Helm chart template debug rendered manifest",
+    "docker container logs stdout stderr streaming",
 ]
 
 
@@ -26,6 +36,10 @@ def mean_pooling(token_embeddings: np.ndarray, attention_mask: np.ndarray) -> np
     summed = (token_embeddings.astype(np.float32) * mask).sum(axis=1)
     counts = np.clip(mask.sum(axis=1), 1e-9, None)
     return summed / counts
+
+
+def cls_pooling(token_embeddings: np.ndarray) -> np.ndarray:
+    return token_embeddings[:, 0, :].astype(np.float32)
 
 
 def l2_normalize(x: np.ndarray) -> np.ndarray:
@@ -52,6 +66,15 @@ def extract_embeddings(
     for name in ["token_embeddings", "last_hidden_state"]:
         if name in outputs_by_name:
             token_embeddings = outputs_by_name[name].astype(np.float32)
+            embeddings = cls_pooling(token_embeddings)
+            method = f"cls_pooling:{name}"
+            if normalize:
+                embeddings = l2_normalize(embeddings)
+            return embeddings, method
+
+    for name in ["token_embeddings", "last_hidden_state"]:
+        if name in outputs_by_name:
+            token_embeddings = outputs_by_name[name].astype(np.float32)
             embeddings = mean_pooling(token_embeddings, attention_mask)
             method = f"mean_pooling:{name}"
             if normalize:
@@ -61,8 +84,8 @@ def extract_embeddings(
     first = outputs[0].astype(np.float32)
 
     if first.ndim == 3:
-        embeddings = mean_pooling(first, attention_mask)
-        method = "mean_pooling:first_output"
+        embeddings = cls_pooling(first)
+        method = "cls_pooling:first_output"
         if normalize:
             embeddings = l2_normalize(embeddings)
         return embeddings, method
@@ -182,7 +205,7 @@ def validate_retrieval_overlap(
     top_k_values: list[int] | None = None,
 ) -> dict:
     if top_k_values is None:
-        top_k_values = [1, 5, 10]
+        top_k_values = [1, 3, 5]
 
     candidate = l2_normalize(candidate_embeddings.astype(np.float32))
     reference = l2_normalize(reference_embeddings.astype(np.float32))
@@ -207,8 +230,8 @@ def validate_retrieval_overlap(
         value = float(np.mean(overlaps))
         result[f"retrieval_top{k}_overlap"] = value
 
-        if k == 10 and value < 0.99:
-            errors.append(f"retrieval_top10_overlap too low: {value}")
+        if k == 5 and value < 0.99:
+            errors.append(f"retrieval_top5_overlap too low: {value}")
 
     result["retrieval_validation_passed"] = len(errors) == 0
     result["retrieval_validation_errors"] = errors

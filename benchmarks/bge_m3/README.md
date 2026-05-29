@@ -146,8 +146,8 @@ Each run writes one JSON object per line (JSONL). With `--validate` (default), e
   "reference_cosine_similarity_min": 0.9999,
   "retrieval_validation_enabled": true,
   "retrieval_top1_overlap": 1.0,
+  "retrieval_top3_overlap": 1.0,
   "retrieval_top5_overlap": 1.0,
-  "retrieval_top10_overlap": 1.0,
   "validation_errors": []
 }
 ```
