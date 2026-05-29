@@ -89,6 +89,29 @@ def make_inputs(session: ort.InferenceSession, encoded) -> dict[str, np.ndarray]
     return inputs
 
 
+def build_quantization_metadata(args: argparse.Namespace) -> dict:
+    if args.precision == "int8":
+        return {
+            "enabled": True,
+            "method": args.quantization_method or "dynamic",
+            "weight_type": args.quantization_weight_type or "qint8",
+            "activation_type": None,
+            "calibration_enabled": False,
+            "calibration_dataset": None,
+            "source_model_variant": "onnx-cpu-fp32",
+        }
+    else:
+        return {
+            "enabled": False,
+            "method": None,
+            "weight_type": None,
+            "activation_type": None,
+            "calibration_enabled": False,
+            "calibration_dataset": None,
+            "source_model_variant": None,
+        }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-dir", default="models/bge-m3-fp32")
@@ -98,11 +121,16 @@ def main() -> None:
     parser.add_argument("--dataset", choices=["en", "th", "mixed"], default="mixed")
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--batches", type=int, default=20)
-    parser.add_argument("--out", default="../results/onnx_cpu_fp32.jsonl")
+    parser.add_argument("--out", default="../results/onnx_cpu_fp32_stage_breakdown.jsonl")
     parser.add_argument("--validate", action="store_true", default=True)
     parser.add_argument("--no-validate", dest="validate", action="store_false")
     parser.add_argument("--expected-embedding-dim", type=int, default=1024)
     parser.add_argument("--no-normalize", dest="normalize", action="store_false", default=True)
+    parser.add_argument("--precision", choices=["fp32", "int8"], default="fp32")
+    parser.add_argument("--model-variant", default="onnx-cpu-fp32")
+    parser.add_argument("--quantization-method", default=None)
+    parser.add_argument("--quantization-weight-type", default=None)
+    parser.add_argument("--reference-model-dir", default=None)
     args = parser.parse_args()
 
     for name, val in [
@@ -159,6 +187,7 @@ def main() -> None:
         session.run(None, inputs_warmup)
 
     validation_result = {}
+    reference_embeddings = None
     if args.validate:
         validation_texts = VALIDATION_TEXTS
         encoded_val = tokenizer(
@@ -170,19 +199,11 @@ def main() -> None:
         )
         inputs_val = make_inputs(session, encoded_val)
 
-        outputs_ref = session.run(None, inputs_val)
+        outputs_candidate = session.run(None, inputs_val)
         output_names = [o.name for o in session.get_outputs()]
-        output_shapes = [list(o.shape) for o in outputs_ref]
+        output_shapes = [list(o.shape) for o in outputs_candidate]
         attention_mask_val = encoded_val["attention_mask"]
 
-        ref_embeddings, extraction_method_ref = extract_embeddings(
-            outputs=outputs_ref,
-            output_names=output_names,
-            attention_mask=attention_mask_val,
-            normalize=args.normalize,
-        )
-
-        outputs_candidate = session.run(None, inputs_val)
         cand_embeddings, extraction_method_cand = extract_embeddings(
             outputs=outputs_candidate,
             output_names=output_names,
@@ -197,9 +218,52 @@ def main() -> None:
             require_normalized=args.normalize,
         )
 
-        ref_validation = validate_against_reference(cand_embeddings, ref_embeddings)
+        ref_model_dir = Path(args.reference_model_dir) if args.reference_model_dir else None
+        if ref_model_dir and ref_model_dir != model_dir:
+            ref_tokenizer = AutoTokenizer.from_pretrained(str(ref_model_dir))
+            ref_onnx_path = ref_model_dir / "model.onnx"
+            ref_session_options = ort.SessionOptions()
+            ref_session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            ref_session = ort.InferenceSession(
+                str(ref_onnx_path),
+                sess_options=ref_session_options,
+                providers=["CPUExecutionProvider"],
+            )
+            encoded_val_ref = ref_tokenizer(
+                validation_texts,
+                padding=True,
+                truncation=True,
+                max_length=args.max_length,
+                return_tensors="np",
+            )
+            inputs_val_ref = make_inputs(ref_session, encoded_val_ref)
+            outputs_ref = ref_session.run(None, inputs_val_ref)
+            reference_embeddings, _ = extract_embeddings(
+                outputs=outputs_ref,
+                output_names=output_names,
+                attention_mask=attention_mask_val,
+                normalize=args.normalize,
+            )
+        else:
+            outputs_ref = session.run(None, inputs_val)
+            reference_embeddings, _ = extract_embeddings(
+                outputs=outputs_ref,
+                output_names=output_names,
+                attention_mask=attention_mask_val,
+                normalize=args.normalize,
+            )
 
-        retrieval_validation = validate_retrieval_overlap(cand_embeddings, ref_embeddings)
+        ref_validation = validate_against_reference(
+            cand_embeddings,
+            reference_embeddings,
+            max_length=args.max_length,
+        )
+
+        retrieval_validation = validate_retrieval_overlap(
+            cand_embeddings,
+            reference_embeddings,
+            max_length=args.max_length,
+        )
 
         validation_result = {
             "validation_enabled": True,
@@ -223,7 +287,6 @@ def main() -> None:
         )
         validation_result["validation_errors"] = combined_errors
 
-    # Phase 1: Tokenization-only
     tokenize_latencies = []
     for _ in range(args.batches):
         start = time.perf_counter()
@@ -237,7 +300,6 @@ def main() -> None:
         elapsed = time.perf_counter() - start
         tokenize_latencies.append(elapsed)
 
-    # Phase 2: Embedding-only (tokenize once, time embedding only)
     encoded_once = tokenizer(
         texts,
         padding=True,
@@ -255,7 +317,6 @@ def main() -> None:
         elapsed = time.perf_counter() - start
         embedding_latencies.append(elapsed)
 
-    # Phase 3: End-to-end
     e2e_latencies = []
     total_items = 0
     total_tokens = 0
@@ -287,11 +348,15 @@ def main() -> None:
     total_tokens_phase2 = real_tokens_once * args.batches
 
     result = {
+        "schema_version": "2.0",
+        "run_id": f"{args.model_variant}-{args.dataset}-bs{args.batch_size}-l{args.max_length}",
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "model": "BAAI/bge-m3",
+        "model_variant": args.model_variant,
         "runtime": "onnxruntime",
         "provider": "CPUExecutionProvider",
         "device": "cpu",
-        "precision": "fp32",
+        "precision": args.precision,
         "dataset": args.dataset,
         "language": args.dataset,
         "batch_size": args.batch_size,
@@ -320,6 +385,21 @@ def main() -> None:
         "machine_metadata": machine_metadata,
     }
     result.update(flatten_machine_metadata(machine_metadata))
+
+    quantization_metadata = build_quantization_metadata(args)
+    result["quantization"] = quantization_metadata
+
+    if args.precision == "int8":
+        result["reference_model_variant"] = "onnx-cpu-fp32"
+        result["candidate_model_variant"] = "onnx-cpu-int8-dynamic"
+        result["reference_precision"] = "fp32"
+        result["candidate_precision"] = "int8"
+    else:
+        result["reference_model_variant"] = None
+        result["candidate_model_variant"] = None
+        result["reference_precision"] = None
+        result["candidate_precision"] = None
+
     if validation_result:
         result.update(validation_result)
 

@@ -28,6 +28,24 @@ VALIDATION_TEXTS = [
     "prometheus metric latency ของ api service ตรวจสอบ dashboard alert",
 ]
 
+INT8_PER_LENGTH_THRESHOLDS = {
+    32: {
+        "cosine_similarity_mean_min": 0.990,
+        "cosine_similarity_min_min": 0.985,
+        "top10_overlap_min": 0.95,
+    },
+    128: {
+        "cosine_similarity_mean_min": 0.993,
+        "cosine_similarity_min_min": 0.990,
+        "top10_overlap_min": 0.97,
+    },
+    512: {
+        "cosine_similarity_mean_min": 0.995,
+        "cosine_similarity_min_min": 0.992,
+        "top10_overlap_min": 0.98,
+    },
+}
+
 
 def percentile(values: list[float], p: float) -> float:
     values = sorted(values)
@@ -167,6 +185,7 @@ def rowwise_cosine_similarity(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 def validate_against_reference(
     candidate_embeddings: np.ndarray,
     reference_embeddings: np.ndarray,
+    max_length: int | None = None,
 ) -> dict:
     sims = rowwise_cosine_similarity(candidate_embeddings, reference_embeddings)
 
@@ -176,11 +195,28 @@ def validate_against_reference(
     sim_min = float(sims.min())
     sim_p01 = float(percentile(list(sims), 0.01))
 
-    if sim_mean < 0.999:
-        errors.append(f"reference_cosine_similarity_mean too low: {sim_mean}")
+    threshold_key = None
+    if max_length is not None:
+        for length_key in sorted(INT8_PER_LENGTH_THRESHOLDS.keys()):
+            if max_length <= length_key:
+                threshold_key = length_key
+                break
+        if threshold_key is None:
+            threshold_key = max(sorted(INT8_PER_LENGTH_THRESHOLDS.keys()))
 
-    if sim_min < 0.995:
-        errors.append(f"reference_cosine_similarity_min too low: {sim_min}")
+    if threshold_key is not None:
+        thresholds = INT8_PER_LENGTH_THRESHOLDS[threshold_key]
+        cosine_sim_mean_min = thresholds["cosine_similarity_mean_min"]
+        ref_sim_min_threshold = thresholds["cosine_similarity_min_min"]
+    else:
+        cosine_sim_mean_min = 0.999
+        ref_sim_min_threshold = 0.995
+
+    if sim_mean < cosine_sim_mean_min:
+        errors.append(f"reference_cosine_similarity_mean too low: {sim_mean} < {cosine_sim_mean_min}")
+
+    if sim_min < ref_sim_min_threshold:
+        errors.append(f"reference_cosine_similarity_min too low: {sim_min} < {ref_sim_min_threshold}")
 
     return {
         "reference_validation_enabled": True,
@@ -189,6 +225,7 @@ def validate_against_reference(
         "reference_cosine_similarity_p01": sim_p01,
         "reference_validation_passed": len(errors) == 0,
         "reference_validation_errors": errors,
+        "reference_cosine_similarity_threshold": cosine_sim_mean_min,
     }
 
 
@@ -200,10 +237,11 @@ def topk_indices(similarity_matrix: np.ndarray, k: int) -> list[set[int]]:
 def validate_retrieval_overlap(
     candidate_embeddings: np.ndarray,
     reference_embeddings: np.ndarray,
+    max_length: int | None = None,
     top_k_values: list[int] | None = None,
 ) -> dict:
     if top_k_values is None:
-        top_k_values = [1, 3, 5]
+        top_k_values = [1, 3, 5, 10]
 
     candidate = l2_normalize(candidate_embeddings.astype(np.float32))
     reference = l2_normalize(reference_embeddings.astype(np.float32))
@@ -217,6 +255,15 @@ def validate_retrieval_overlap(
 
     errors = []
 
+    threshold_key = None
+    if max_length is not None:
+        for length_key in sorted(INT8_PER_LENGTH_THRESHOLDS.keys()):
+            if max_length <= length_key:
+                threshold_key = length_key
+                break
+        if threshold_key is None:
+            threshold_key = max(sorted(INT8_PER_LENGTH_THRESHOLDS.keys()))
+
     for k in top_k_values:
         candidate_topk = topk_indices(candidate_sim, k)
         reference_topk = topk_indices(reference_sim, k)
@@ -228,10 +275,16 @@ def validate_retrieval_overlap(
         value = float(np.mean(overlaps))
         result[f"retrieval_top{k}_overlap"] = value
 
-        if k == 5 and value < 0.99:
-            errors.append(f"retrieval_top5_overlap too low: {value}")
+        if threshold_key is not None:
+            top10_threshold = INT8_PER_LENGTH_THRESHOLDS[threshold_key]["top10_overlap_min"]
+            if k == 10 and value < top10_threshold:
+                errors.append(f"retrieval_top10_overlap too low: {value} < {top10_threshold}")
+
+    if threshold_key is not None:
+        result["retrieval_top10_overlap_threshold"] = INT8_PER_LENGTH_THRESHOLDS[threshold_key]["top10_overlap_min"]
 
     result["retrieval_validation_passed"] = len(errors) == 0
     result["retrieval_validation_errors"] = errors
 
     return result
+

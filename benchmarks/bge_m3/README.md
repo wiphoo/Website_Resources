@@ -7,7 +7,7 @@ Benchmark BGE-M3 embedding inference using ONNX Runtime on CPU (FP32).
 ```bash
 cd src
 uv sync
-uv run python scripts/bench_onnx_cpu_fp32.py --dataset mixed --batch-size 4 --max-length 128
+uv run python scripts/bench_onnx_cpu_stage_breakdown.py --dataset mixed --batch-size 4 --max-length 128
 ```
 
 Results are appended to `../results/onnx_cpu_fp32.jsonl` (from `src/` → project root → `results/`).
@@ -49,7 +49,7 @@ Dependencies: `numpy`, `pandas`, `matplotlib`, `transformers`, `onnxruntime`, `j
 ### Smoke test
 
 ```bash
-uv run python scripts/bench_onnx_cpu_fp32.py \
+uv run python scripts/bench_onnx_cpu_stage_breakdown.py \
   --model-dir models/bge-m3-fp32 \
   --dataset mixed \
   --batch-size 4 \
@@ -68,7 +68,7 @@ rm -f ../results/onnx_cpu_fp32.jsonl
 for dataset in en th mixed; do
   for bs in 1 8 16 32; do
     for len in 32 128 512; do
-      uv run python scripts/bench_onnx_cpu_fp32.py \
+      uv run python scripts/bench_onnx_cpu_stage_breakdown.py \
         --model-dir models/bge-m3-fp32 \
         --dataset "$dataset" \
         --batch-size "$bs" \
@@ -191,7 +191,7 @@ Validation is enabled by default. Every run checks:
 **Disable validation** (faster benchmarks, skip correctness checks):
 
 ```bash
-uv run python scripts/bench_onnx_cpu_fp32.py \
+uv run python scripts/bench_onnx_cpu_stage_breakdown.py \
   --model-dir models/bge-m3-fp32 \
   --dataset mixed \
   --batch-size 4 \
@@ -262,20 +262,23 @@ benchmarks/bge_m3/
     │   ├── tokenizer_config.json
     │   └── special_tokens_map.json
     └── scripts/
-        ├── bench_onnx_cpu_fp32.py  # benchmark script
+        ├── bench_onnx_cpu_stage_breakdown.py  # FP32/INT8 benchmark (supports --precision, --model-variant)
         ├── export_model.py          # model export script
+        ├── quantize_onnx_dynamic_int8.py  # INT8 quantization
+        ├── run_milestone_2_matrix.sh       # 72-run benchmark matrix
         ├── machine_metadata.py      # machine metadata collection
-        └── validation.py           # embedding validation module
+        └── validation.py           # embedding validation (per-length INT8 thresholds)
 ```
 
 ## Notebooks
 
 | Notebook | Path | Schema | Description |
 |---|---|---|---|
-| **Active** | `notebooks/plot_onnx_cpu_fp32.ipynb` | v2 (with `machine_metadata`) | Full analysis with machine metadata, groupby by CPU config |
+| **Active FP32** | `notebooks/plot_onnx_cpu_fp32.ipynb` | v2 (with `machine_metadata`) | Full analysis with machine metadata, groupby by CPU config |
+| **FP32 vs INT8** | `notebooks/plot_onnx_cpu_fp32_vs_int8.ipynb` | v2 (with `quantization`) | INT8 speedup and quality comparison |
 | **Archived** | `archived/plot_onnx_cpu_fp32.ipynb` | v1 (no `machine_metadata`) | Legacy analysis, same metrics without hardware correlation |
 
-Both notebooks use `!uv pip install` — run `uv sync` in `notebooks/` before launching for faster startup:
+Notebooks use `!uv pip install` — run `uv sync` in `notebooks/` before launching for faster startup:
 
 ```bash
 cd notebooks
@@ -290,6 +293,90 @@ If you need to re-export the model:
 ```bash
 uv run python scripts/export_model.py
 ```
+
+---
+
+## Milestone 2: ONNX CPU INT8 Comparison
+
+### Generate INT8 model
+
+```bash
+cd src
+uv run python scripts/quantize_onnx_dynamic_int8.py \
+  --src-model-dir models/bge-m3-fp32 \
+  --dst-model-dir models/bge-m3-int8-dynamic \
+  --weight-type qint8
+```
+
+### Run benchmark matrix (72 runs: 36 FP32 + 36 INT8)
+
+```bash
+chmod +x scripts/run_milestone_2_matrix.sh
+./scripts/run_milestone_2_matrix.sh
+```
+
+### Smoke tests
+
+FP32 smoke test:
+```bash
+uv run python scripts/bench_onnx_cpu_stage_breakdown.py \
+  --model-dir models/bge-m3-fp32 \
+  --precision fp32 \
+  --model-variant onnx-cpu-fp32 \
+  --dataset mixed \
+  --batch-size 4 \
+  --max-length 128 \
+  --target-words 64 \
+  --warmup 1 \
+  --batches 2 \
+  --validate \
+  --out ../results/onnx_cpu_fp32_stage_breakdown.jsonl
+```
+
+INT8 smoke test:
+```bash
+uv run python scripts/bench_onnx_cpu_stage_breakdown.py \
+  --model-dir models/bge-m3-int8-dynamic \
+  --precision int8 \
+  --model-variant onnx-cpu-int8-dynamic \
+  --quantization-method dynamic \
+  --quantization-weight-type qint8 \
+  --reference-model-dir models/bge-m3-fp32 \
+  --dataset mixed \
+  --batch-size 4 \
+  --max-length 128 \
+  --target-words 64 \
+  --warmup 1 \
+  --batches 2 \
+  --validate \
+  --out ../results/onnx_cpu_int8_stage_breakdown.jsonl
+```
+
+### Open comparison notebook
+
+```bash
+cd notebooks
+uv sync
+uv run jupyter notebook plot_onnx_cpu_fp32_vs_int8.ipynb
+```
+
+### Per-Length INT8 Validation Thresholds
+
+| max_length | cosine_sim_mean | top10_overlap |
+|---|---|---|
+| 32 | >= 0.990 | >= 0.95 |
+| 128 | >= 0.993 | >= 0.97 |
+| 512 | >= 0.995 | >= 0.98 |
+
+### Decision Rule
+
+INT8 is accepted only if:
+- `embedding_speedup_int8_vs_fp32 > 1.10`
+- Per-length quality thresholds met
+- `embedding_nan_count == 0`
+- `embedding_inf_count == 0`
+
+---
 
 ## Notes
 
