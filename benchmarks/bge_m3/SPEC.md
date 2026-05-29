@@ -564,7 +564,5 @@ Milestone 1.6:
 
 ## References
 
-- `docs/bge_m3_benchmark/bge_m3_milestone_1_1_tokenize_embedding_split.md` — stage-separated benchmark specification
-- `docs/bge_m3_benchmark/bge_m3_milestone_1_2_machine_metadata.md` — machine metadata capture specification
 - uv manages Python projects with `pyproject.toml`, virtual environments, and `uv.lock`; project commands include `uv run`, `uv sync`, and `uv lock`.
 - PyThaiNLP provides Thai tokenization tools, but Milestone 1 does not compare against it. The benchmark uses BGE-M3 tokenizer counts only.
