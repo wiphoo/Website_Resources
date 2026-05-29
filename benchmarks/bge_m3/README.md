@@ -132,7 +132,7 @@ Each run writes one JSON object per line (JSONL). With `--validate` (default), e
   "validation_passed": true,
   "onnx_output_names": ["last_hidden_state"],
   "onnx_output_shapes": [[10, 21, 1024]],
-  "embedding_extraction_method": "mean_pooling:last_hidden_state",
+  "embedding_extraction_method": "cls_pooling:last_hidden_state",
   "embedding_shape": [10, 1024],
   "embedding_dim": 1024,
   "embedding_nan_count": 0,
@@ -159,13 +159,13 @@ Each run writes one JSON object per line (JSONL). With `--validate` (default), e
 | `validation_passed` | All validation checks passed |
 | `onnx_output_names` | Names of ONNX model outputs |
 | `onnx_output_shapes` | Shapes of ONNX model outputs |
-| `embedding_extraction_method` | How embeddings were extracted (e.g. `mean_pooling:last_hidden_state`) |
+| `embedding_extraction_method` | How embeddings were extracted (e.g. `cls_pooling:last_hidden_state`) |
 | `embedding_dim` | Embedding dimension (expected 1024 for BGE-M3) |
 | `embedding_nan_count` | Count of NaN values in embeddings |
 | `embedding_inf_count` | Count of Inf values in embeddings |
 | `embedding_norm_mean` | Mean L2 norm (should be ~1.0 if normalized) |
 | `reference_cosine_similarity_mean` | Self-comparison cosine similarity mean (≥0.999 for FP32) |
-| `retrieval_top10_overlap` | Self-retrieval top-10 overlap (≥0.99 for FP32) |
+| `retrieval_top5_overlap` | Self-retrieval top-5 overlap on 20-text corpus (≥0.99 for FP32) |
 | `validation_errors` | List of validation errors (empty if passed) |
 
 Key metrics:
