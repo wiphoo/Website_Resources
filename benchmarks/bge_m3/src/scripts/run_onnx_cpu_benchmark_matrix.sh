@@ -3,13 +3,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+SRC_DIR="$PROJECT_DIR/src"
+
+cd "$SRC_DIR"
 
 rm -f "$PROJECT_DIR/results/onnx_cpu_fp32_stage_breakdown.jsonl"
 rm -f "$PROJECT_DIR/results/onnx_cpu_int8_stage_breakdown.jsonl"
 
 for dataset in en th mixed; do
   for bs in 1 8 16 32; do
-    for len in 32 128 512; do
+    for len in 64 128; do
       uv run python scripts/bench_onnx_cpu_stage_breakdown.py \
         --model-dir models/bge-m3-fp32 \
         --precision fp32 \

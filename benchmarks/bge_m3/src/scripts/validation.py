@@ -186,6 +186,7 @@ def validate_against_reference(
     candidate_embeddings: np.ndarray,
     reference_embeddings: np.ndarray,
     max_length: int | None = None,
+    is_int8: bool = False,
 ) -> dict:
     sims = rowwise_cosine_similarity(candidate_embeddings, reference_embeddings)
 
@@ -204,7 +205,7 @@ def validate_against_reference(
         if threshold_key is None:
             threshold_key = max(sorted(INT8_PER_LENGTH_THRESHOLDS.keys()))
 
-    if threshold_key is not None:
+    if is_int8 and threshold_key is not None:
         thresholds = INT8_PER_LENGTH_THRESHOLDS[threshold_key]
         cosine_sim_mean_min = thresholds["cosine_similarity_mean_min"]
         ref_sim_min_threshold = thresholds["cosine_similarity_min_min"]
@@ -239,6 +240,7 @@ def validate_retrieval_overlap(
     reference_embeddings: np.ndarray,
     max_length: int | None = None,
     top_k_values: list[int] | None = None,
+    is_int8: bool = False,
 ) -> dict:
     if top_k_values is None:
         top_k_values = [1, 3, 5, 10]
@@ -256,7 +258,7 @@ def validate_retrieval_overlap(
     errors = []
 
     threshold_key = None
-    if max_length is not None:
+    if is_int8 and max_length is not None:
         for length_key in sorted(INT8_PER_LENGTH_THRESHOLDS.keys()):
             if max_length <= length_key:
                 threshold_key = length_key

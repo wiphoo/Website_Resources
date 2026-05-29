@@ -121,7 +121,7 @@ def main() -> None:
     parser.add_argument("--dataset", choices=["en", "th", "mixed"], default="mixed")
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--batches", type=int, default=20)
-    parser.add_argument("--out", default="../results/onnx_cpu_fp32_stage_breakdown.jsonl")
+    parser.add_argument("--out", default="../results/onnx_cpu_stage_breakdown.jsonl")
     parser.add_argument("--validate", action="store_true", default=True)
     parser.add_argument("--no-validate", dest="validate", action="store_false")
     parser.add_argument("--expected-embedding-dim", type=int, default=1024)
@@ -143,6 +143,15 @@ def main() -> None:
             parser.error(f"--{name} must be > 0 (got {val})")
     if args.warmup < 0:
         parser.error(f"--warmup must be >= 0 (got {args.warmup})")
+
+    if args.precision == "int8" and (
+        not args.reference_model_dir
+        or Path(args.reference_model_dir) == model_dir
+    ):
+        parser.error(
+            "--reference-model-dir (FP32) is required and must differ from "
+            "--model-dir when --precision int8; otherwise INT8 validates against itself"
+        )
 
     model_dir = Path(args.model_dir)
     onnx_path = model_dir / "model.onnx"
@@ -238,10 +247,11 @@ def main() -> None:
             )
             inputs_val_ref = make_inputs(ref_session, encoded_val_ref)
             outputs_ref = ref_session.run(None, inputs_val_ref)
+            ref_output_names = [o.name for o in ref_session.get_outputs()]
             reference_embeddings, _ = extract_embeddings(
                 outputs=outputs_ref,
-                output_names=output_names,
-                attention_mask=attention_mask_val,
+                output_names=ref_output_names,
+                attention_mask=encoded_val_ref["attention_mask"],
                 normalize=args.normalize,
             )
         else:
@@ -257,12 +267,14 @@ def main() -> None:
             cand_embeddings,
             reference_embeddings,
             max_length=args.max_length,
+            is_int8=(args.precision == "int8"),
         )
 
         retrieval_validation = validate_retrieval_overlap(
             cand_embeddings,
             reference_embeddings,
             max_length=args.max_length,
+            is_int8=(args.precision == "int8"),
         )
 
         validation_result = {
