@@ -128,14 +128,17 @@ def validate_embeddings(
     if inf_count > 0:
         errors.append(f"Found Inf values: {inf_count}")
 
-    norms = np.linalg.norm(embeddings, axis=1)
-    norm_mean = float(norms.mean())
-    norm_min = float(norms.min())
-    norm_max = float(norms.max())
-    norm_std = float(norms.std())
+    if embeddings.ndim == 2:
+        norms = np.linalg.norm(embeddings, axis=1)
+        norm_mean = float(norms.mean())
+        norm_min = float(norms.min())
+        norm_max = float(norms.max())
+        norm_std = float(norms.std())
 
-    if require_normalized and not (0.95 <= norm_mean <= 1.05):
-        errors.append(f"Embedding norm mean out of expected range: {norm_mean}")
+        if require_normalized and not (0.95 <= norm_mean <= 1.05):
+            errors.append(f"Embedding norm mean out of expected range: {norm_mean}")
+    else:
+        norm_mean = norm_min = norm_max = norm_std = None
 
     return {
         "validation_passed": len(errors) == 0,
