@@ -546,7 +546,7 @@ Milestone 1.3 (DONE):
     - validate_embeddings() for shape/NaN/Inf/norm
     - validate_against_reference() for self-comparison cosine similarity
     - validate_retrieval_overlap() for self-retrieval top-k overlap
-    - 20-text English-only validation corpus (distinct observability concepts)
+    - 21-text English/Thai/mixed validation corpus (distinct observability concepts)
     - k=5 enforced threshold (k=10 would equal full corpus = trivial overlap)
     - Integration into bench_onnx_cpu_fp32.py with --validate (default),
       --expected-embedding-dim (default 1024), --no-normalize CLI flags

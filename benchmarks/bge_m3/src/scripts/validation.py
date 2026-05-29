@@ -2,6 +2,7 @@ import numpy as np
 
 
 VALIDATION_TEXTS = [
+    # English
     "http_request_duration_seconds_bucket api latency histogram",
     "container_cpu_usage_seconds_total cpu usage metric",
     "kube_pod_status_phase pod status metric",
@@ -15,13 +16,16 @@ VALIDATION_TEXTS = [
     "etcd database compaction and defragmentation operations",
     "kubernetes hpa scaling events and replica count",
     "container memory working set bytes exhausted",
-    "kubernetes endpoint slice changes discovery",
     "istio Envoy proxy access log format and fields",
     "PromQL instant vector range vector selector syntax",
-    "OpenTelemetry collector batch span processor queue",
-    "Kubernetes custom resource definition schema validation",
-    "Helm chart template debug rendered manifest",
-    "docker container logs stdout stderr streaming",
+    # Thai
+    "สวัสดีครับ ระบบแจ้งเตือนมี latency สูงผิดปกติ",
+    "เมตริก http_request_duration_seconds_bucket ใช้วัดเวลา request ของ API",
+    "แดชบอร์ดแสดงอัตรา error ของบริการ production",
+    "ระบบ Prometheus เก็บข้อมูลจาก pod และ namespace เพื่อตรวจสอบ service",
+    "คู่มือ runbook อธิบายขั้นตอนการแก้ปัญหาเมื่อ API ช้า",
+    # Mixed
+    "prometheus metric latency ของ api service ตรวจสอบ dashboard alert",
 ]
 
 
