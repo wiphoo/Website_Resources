@@ -10,11 +10,11 @@ uv sync
 uv run python scripts/bench_onnx_cpu_fp32.py --dataset mixed --batch-size 4 --max-length 128
 ```
 
-Results are appended to `results/onnx_cpu_fp32.jsonl`.
+Results are appended to `../results/onnx_cpu_fp32.jsonl` (from `src/` → project root → `results/`).
 
 ## Prerequisites
 
-- Python 3.11+ (see `.python-version`)
+- Python 3.14 (see `.python-version`)
 - [uv](https://github.com/astral-sh/uv)
 
 ## Downloading the model
@@ -57,13 +57,13 @@ uv run python scripts/bench_onnx_cpu_fp32.py \
   --target-words 64 \
   --warmup 1 \
   --batches 2 \
-  --out results/onnx_cpu_fp32.jsonl
+  --out ../results/onnx_cpu_fp32.jsonl
 ```
 
 ### Full 36-run matrix
 
 ```bash
-rm -f results/onnx_cpu_fp32.jsonl
+rm -f ../results/onnx_cpu_fp32.jsonl
 
 for dataset in en th mixed; do
   for bs in 1 8 16 32; do
@@ -76,12 +76,12 @@ for dataset in en th mixed; do
         --target-words "$len" \
         --warmup 5 \
         --batches 20 \
-        --out results/onnx_cpu_fp32.jsonl
+        --out ../results/onnx_cpu_fp32.jsonl
     done
   done
 done
 
-echo "Runs: $(wc -l < results/onnx_cpu_fp32.jsonl)"
+echo "Runs: $(wc -l < ../results/onnx_cpu_fp32.jsonl)"
 ```
 
 ### Arguments
@@ -95,11 +95,14 @@ echo "Runs: $(wc -l < results/onnx_cpu_fp32.jsonl)"
 | `--target-words` | `256` | Approximate word count for synthetic text |
 | `--warmup` | `5` | Warmup batches |
 | `--batches` | `20` | Measured batches |
-| `--out` | `results/onnx_cpu_fp32.jsonl` | Output path (JSONL, appends) |
+| `--out` | `../results/onnx_cpu_fp32.jsonl` | Output path (JSONL, appends) |
+| `--validate` | `True` | Enable validation (shape, NaN/Inf, norm, reference, retrieval) |
+| `--expected-embedding-dim` | `1024` | Expected embedding dimension |
+| `--no-normalize` | `False` | Disable L2 normalization of embeddings |
 
 ## Output format
 
-Each run writes one JSON object per line (JSONL):
+Each run writes one JSON object per line (JSONL). With `--validate` (default), each result includes performance metrics plus correctness validation:
 
 ```json
 {
@@ -109,54 +112,145 @@ Each run writes one JSON object per line (JSONL):
   "device": "cpu",
   "precision": "fp32",
   "dataset": "mixed",
-  "machine": " hostname",
   "batch_size": 32,
   "max_length": 512,
   "total_items": 640,
   "total_tokens": 18640,
   "avg_tokens_per_item": 29.1,
-  "model_tokens_per_sec": 58210.3,
-  "e2e_tokens_per_sec": 41200.1,
-  "model_embeddings_per_sec": 2000.5,
-  "e2e_embeddings_per_sec": 1415.2,
-  "model_latency_ms_p95": 1.82,
-  "e2e_latency_ms_p95": 2.78
+  "tokenize_tokens_per_sec": 85200.4,
+  "embedding_tokens_per_sec": 58210.3,
+  "end_to_end_tokens_per_sec": 41200.1,
+  "tokenize_items_per_sec": 2944.8,
+  "embedding_items_per_sec": 2000.5,
+  "end_to_end_items_per_sec": 1415.2,
+  "tokenize_latency_ms_p95": 0.96,
+  "embedding_latency_ms_p95": 1.82,
+  "end_to_end_latency_ms_p95": 2.78,
+  "machine_metadata": { ... },
+  "validation_enabled": true,
+  "validation_passed": true,
+  "onnx_output_names": ["last_hidden_state"],
+  "onnx_output_shapes": [[10, 21, 1024]],
+  "embedding_extraction_method": "cls_pooling:last_hidden_state",
+  "embedding_shape": [10, 1024],
+  "embedding_dim": 1024,
+  "embedding_nan_count": 0,
+  "embedding_inf_count": 0,
+  "embedding_norm_mean": 1.0,
+  "embedding_norm_min": 0.9999,
+  "embedding_norm_max": 1.0001,
+  "embedding_norm_std": 0.00001,
+  "reference_validation_enabled": true,
+  "reference_cosine_similarity_mean": 1.0,
+  "reference_cosine_similarity_min": 0.9999,
+  "retrieval_validation_enabled": true,
+  "retrieval_top1_overlap": 1.0,
+  "retrieval_top3_overlap": 1.0,
+  "retrieval_top5_overlap": 1.0,
+  "validation_errors": []
 }
 ```
 
+**Validation fields** (present when `--validate` is used):
+
+| Field | Description |
+|---|---|
+| `validation_passed` | All validation checks passed |
+| `onnx_output_names` | Names of ONNX model outputs |
+| `onnx_output_shapes` | Shapes of ONNX model outputs |
+| `embedding_extraction_method` | How embeddings were extracted (e.g. `cls_pooling:last_hidden_state`) |
+| `embedding_dim` | Embedding dimension (expected 1024 for BGE-M3) |
+| `embedding_nan_count` | Count of NaN values in embeddings |
+| `embedding_inf_count` | Count of Inf values in embeddings |
+| `embedding_norm_mean` | Mean L2 norm (should be ~1.0 if normalized) |
+| `reference_cosine_similarity_mean` | Self-comparison cosine similarity mean (≥0.999 for FP32) |
+| `retrieval_top5_overlap` | Self-retrieval top-5 overlap on 21-text corpus (≥0.99 for FP32) |
+| `validation_errors` | List of validation errors (empty if passed) |
+
 Key metrics:
-- **model_tokens_per_sec** — tokens/sec during ONNX model inference only
-- **e2e_tokens_per_sec** — tokens/sec including tokenization overhead
-- **model_embeddings_per_sec** — full sequences (batches) per second, model only
-- **e2e_embeddings_per_sec** — full sequences per second, end-to-end
+- **tokenize_tokens_per_sec** — tokens/sec during tokenization only
+- **embedding_tokens_per_sec** — tokens/sec during ONNX model inference only
+- **end_to_end_tokens_per_sec** — tokens/sec including tokenization + inference
+- **tokenize_items_per_sec** — batches/sec, tokenizer only
+- **embedding_items_per_sec** — batches/sec, model only
+- **end_to_end_items_per_sec** — batches/sec, end-to-end
+
+Latency columns: `*_latency_ms_p95` — p95 latency in milliseconds for each stage.
+
+## Validation
+
+Validation is enabled by default. Every run checks:
+
+1. **ONNX output inspection** — output names and shapes match expected schema
+2. **Embedding extraction** — CLS pooling over `last_hidden_state` (BGE-M3 ONNX export has no `sentence_embedding` layer)
+3. **Shape / NaN / Inf** — embedding dimension = 1024, no NaN/Inf values
+4. **L2 norm** — mean norm ≈ 1.0 (enforced when normalization is on)
+5. **Reference stability** — same ONNX session run twice on 21 validation texts; row-wise cosine similarity ≥ 0.999
+6. **Retrieval overlap** — self-retrieval on 21-text English/Thai/mixed observability corpus; top-5 nearest-neighbor overlap ≥ 0.99
+
+**Disable validation** (faster benchmarks, skip correctness checks):
+
+```bash
+uv run python scripts/bench_onnx_cpu_fp32.py \
+  --model-dir models/bge-m3-fp32 \
+  --dataset mixed \
+  --batch-size 4 \
+  --max-length 128 \
+  --target-words 64 \
+  --warmup 1 \
+  --batches 2 \
+  --no-validate \
+  --out ../results/onnx_cpu_fp32.jsonl
+```
+
+**Other validation flags**:
+
+```bash
+--expected-embedding-dim 1024   # default; change if using a different model
+--no-normalize                  # disable L2 normalization (raw embeddings)
+```
+
+The 21-text validation corpus covers distinct observability concepts (Prometheus metrics, Kubernetes, Istio, Thai, mixed) to ensure non-trivial retrieval ordering. k=5 is enforced as the discriminative threshold — k=10 would cover the full corpus, making overlap trivially 1.0.
 
 ## Viewing results
 
-Open the notebook and load results:
+Open the active notebook:
 
 ```bash
-uv run jupyter notebook archived/plot_onnx_cpu_fp32.ipynb
+# From project root
+cd benchmarks/bge_m3
+uv run jupyter notebook notebooks/plot_onnx_cpu_fp32.ipynb
 ```
 
 Or from Python:
 
 ```python
 import pandas as pd
-df = pd.read_json("results/onnx_cpu_fp32.jsonl", lines=True)
-print(df[["dataset", "batch_size", "max_length", "model_tokens_per_sec", "e2e_tokens_per_sec"]].to_string())
+
+result_path = "results/onnx_cpu_fp32.jsonl"
+df = pd.read_json(result_path, lines=True)
+
+cols = [
+    "dataset", "batch_size", "max_length",
+    "tokenize_tokens_per_sec", "embedding_tokens_per_sec", "end_to_end_tokens_per_sec",
+]
+print(df[[c for c in cols if c in df.columns]].to_string())
 ```
 
 ## Project layout
 
 ```text
 benchmarks/bge_m3/
+├── README.md
 ├── SPEC.md                         # milestone specification
-├── .gitignore
-├── archived/                       # previous notebook version
+├── archived/                       # legacy notebook (pre-machine_metadata schema)
 │   └── plot_onnx_cpu_fp32.ipynb
+├── notebooks/                      # independent uv project for analysis
+│   ├── pyproject.toml
+│   └── plot_onnx_cpu_fp32.ipynb   # active notebook (machine_metadata-aware)
 ├── results/                        # benchmark output (JSONL)
 │   └── onnx_cpu_fp32.jsonl
-└── src/                            # uv project
+└── src/                            # uv project (models + scripts)
     ├── .python-version
     ├── pyproject.toml
     ├── uv.lock
@@ -167,11 +261,26 @@ benchmarks/bge_m3/
     │   ├── tokenizer.json
     │   ├── tokenizer_config.json
     │   └── special_tokens_map.json
-    ├── scripts/
-    │   ├── bench_onnx_cpu_fp32.py  # benchmark script
-    │   └── export_model.py         # model export script
-    └── notebooks/
-        └── plot_onnx_cpu_fp32.ipynb
+    └── scripts/
+        ├── bench_onnx_cpu_fp32.py  # benchmark script
+        ├── export_model.py          # model export script
+        ├── machine_metadata.py      # machine metadata collection
+        └── validation.py           # embedding validation module
+```
+
+## Notebooks
+
+| Notebook | Path | Schema | Description |
+|---|---|---|---|
+| **Active** | `notebooks/plot_onnx_cpu_fp32.ipynb` | v2 (with `machine_metadata`) | Full analysis with machine metadata, groupby by CPU config |
+| **Archived** | `archived/plot_onnx_cpu_fp32.ipynb` | v1 (no `machine_metadata`) | Legacy analysis, same metrics without hardware correlation |
+
+Both notebooks use `!uv pip install` — run `uv sync` in `notebooks/` before launching for faster startup:
+
+```bash
+cd notebooks
+uv sync
+uv run jupyter notebook plot_onnx_cpu_fp32.ipynb
 ```
 
 ## Exporting the model
@@ -187,3 +296,6 @@ uv run python scripts/export_model.py
 - Thai text samples are embedded directly in the benchmark script (no external Thai NLP needed).
 - Results append to the output file. Use `rm` before running a fresh matrix.
 - `uv.lock` is committed so runs are reproducible across machines.
+- `notebooks/` has its own `pyproject.toml` — it does not share `src/`'s environment.
+- Active notebook path to results: `../results/onnx_cpu_fp32.jsonl`
+- Archived notebook path to results: `../results/onnx_cpu_fp32.jsonl`
