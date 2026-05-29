@@ -201,20 +201,8 @@ def main() -> None:
 
         retrieval_validation = validate_retrieval_overlap(cand_embeddings, ref_embeddings)
 
-        combined_errors = (
-            emb_validation.get("validation_errors", [])
-            + ref_validation.get("reference_validation_errors", [])
-            + retrieval_validation.get("retrieval_validation_errors", [])
-        )
-        all_passed = (
-            emb_validation.get("validation_passed", False)
-            and ref_validation.get("reference_validation_passed", False)
-            and retrieval_validation.get("retrieval_validation_passed", False)
-        )
-
         validation_result = {
             "validation_enabled": True,
-            "validation_passed": all_passed,
             "onnx_output_names": output_names,
             "onnx_output_shapes": output_shapes,
             "embedding_extraction_method": extraction_method_cand,
@@ -222,6 +210,17 @@ def main() -> None:
         validation_result.update(emb_validation)
         validation_result.update(ref_validation)
         validation_result.update(retrieval_validation)
+
+        combined_errors = (
+            emb_validation.get("validation_errors", [])
+            + ref_validation.get("reference_validation_errors", [])
+            + retrieval_validation.get("retrieval_validation_errors", [])
+        )
+        validation_result["validation_passed"] = (
+            emb_validation.get("validation_passed", False)
+            and ref_validation.get("reference_validation_passed", False)
+            and retrieval_validation.get("retrieval_validation_passed", False)
+        )
         validation_result["validation_errors"] = combined_errors
 
     # Phase 1: Tokenization-only
