@@ -542,12 +542,14 @@ commit 6: add sample result JSONL if acceptable for repo
 ```text
 Milestone 1.3 (DONE):
   Add benchmark validation — scripts/validation.py module with:
-    - extract_embeddings() with mean pooling fallback
+    - extract_embeddings() with CLS pooling priority over mean pooling fallback
     - validate_embeddings() for shape/NaN/Inf/norm
     - validate_against_reference() for self-comparison cosine similarity
     - validate_retrieval_overlap() for self-retrieval top-k overlap
-    - 10-text English/Thai/mixed validation corpus
-    - Integration into bench_onnx_cpu_fp32.py with --validate CLI flag
+    - 20-text English-only validation corpus (distinct observability concepts)
+    - k=5 enforced threshold (k=10 would equal full corpus = trivial overlap)
+    - Integration into bench_onnx_cpu_fp32.py with --validate (default),
+      --expected-embedding-dim (default 1024), --no-normalize CLI flags
     - Notebook Step 7: validation summary table + failed rows + norm plot
 
 Milestone 1.4:

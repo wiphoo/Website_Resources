@@ -16,7 +16,7 @@ VALIDATION_TEXTS = [
     "kubernetes hpa scaling events and replica count",
     "container memory working set bytes exhausted",
     "kubernetes endpoint slice changes discovery",
-    " Istio Envoy proxy access log format and fields",
+    "istio Envoy proxy access log format and fields",
     "PromQL instant vector range vector selector syntax",
     "OpenTelemetry collector batch span processor queue",
     "Kubernetes custom resource definition schema validation",
@@ -68,15 +68,6 @@ def extract_embeddings(
             token_embeddings = outputs_by_name[name].astype(np.float32)
             embeddings = cls_pooling(token_embeddings)
             method = f"cls_pooling:{name}"
-            if normalize:
-                embeddings = l2_normalize(embeddings)
-            return embeddings, method
-
-    for name in ["token_embeddings", "last_hidden_state"]:
-        if name in outputs_by_name:
-            token_embeddings = outputs_by_name[name].astype(np.float32)
-            embeddings = mean_pooling(token_embeddings, attention_mask)
-            method = f"mean_pooling:{name}"
             if normalize:
                 embeddings = l2_normalize(embeddings)
             return embeddings, method
