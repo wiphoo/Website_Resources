@@ -2,7 +2,7 @@
 name = "bge-m3-perf"
 version = "0.1.0"
 description = "BGE-M3 ONNX CPU FP32 Benchmark"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
     "jupyter>=1.1.1",
     "matplotlib>=3.10.9",

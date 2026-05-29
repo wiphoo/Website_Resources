@@ -9,6 +9,8 @@ import numpy as np
 import onnxruntime as ort
 from transformers import AutoTokenizer
 
+from machine_metadata import collect_machine_metadata, flatten_machine_metadata
+
 warnings.filterwarnings("ignore", message=".*regex pattern.*")
 
 
@@ -89,7 +91,7 @@ def main() -> None:
     parser.add_argument("--dataset", choices=["en", "th", "mixed"], default="mixed")
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--batches", type=int, default=20)
-    parser.add_argument("--out", default="results/onnx_cpu_fp32.jsonl")
+    parser.add_argument("--out", default="../results/onnx_cpu_fp32.jsonl")
     args = parser.parse_args()
 
     for name, val in [
@@ -118,6 +120,11 @@ def main() -> None:
         sess_options=session_options,
         providers=["CPUExecutionProvider"],
     )
+
+    try:
+        machine_metadata = collect_machine_metadata(session=session)
+    except Exception as e:
+        machine_metadata = {"error": str(e)}
 
     texts = make_texts(args.batch_size, args.target_words, args.dataset)
 
@@ -234,7 +241,9 @@ def main() -> None:
         "end_to_end_latency_ms_avg": statistics.mean(e2e_latencies) * 1000,
         "end_to_end_latency_ms_p50": percentile(e2e_latencies, 0.50) * 1000,
         "end_to_end_latency_ms_p95": percentile(e2e_latencies, 0.95) * 1000,
+        "machine_metadata": machine_metadata,
     }
+    result.update(flatten_machine_metadata(machine_metadata))
 
     with out_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(result, ensure_ascii=False) + "\n")
