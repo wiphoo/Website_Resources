@@ -264,4 +264,4 @@ uv run python scripts/export_model.py
 - `uv.lock` is committed so runs are reproducible across machines.
 - `notebooks/` has its own `pyproject.toml` — it does not share `src/`'s environment.
 - Active notebook path to results: `../results/onnx_cpu_fp32.jsonl`
-- Archived notebook path to results: `../../results/onnx_cpu_fp32.jsonl`
+- Archived notebook path to results: `../results/onnx_cpu_fp32.jsonl`

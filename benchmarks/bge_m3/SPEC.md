@@ -90,7 +90,8 @@ benchmarks/bge_m3/
     └── scripts/
         ├── bench_onnx_cpu_fp32.py            # milestone 1 benchmark
         ├── bench_onnx_cpu_fp32_stage_breakdown.py  # milestone 1.1 stage-separated
-        └── machine_metadata.py                # milestone 1.2 metadata collection
+        ├── machine_metadata.py                # milestone 1.2 metadata collection
+        └── validation.py                     # milestone 1.3 validation
 ```
 
 ---
