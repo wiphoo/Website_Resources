@@ -146,7 +146,7 @@ def main() -> None:
 
     if args.precision == "int8" and (
         not args.reference_model_dir
-        or Path(args.reference_model_dir) == model_dir
+        or Path(args.reference_model_dir) == Path(args.model_dir)
     ):
         parser.error(
             "--reference-model-dir (FP32) is required and must differ from "
