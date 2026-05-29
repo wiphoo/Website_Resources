@@ -25,19 +25,25 @@ We **do not compare against PyThaiNLP** in Milestone 1. PyThaiNLP can tokenize T
 ### Included
 
 ```text
-uv-based Python project
+uv-based Python project (src/ for scripts + models, notebooks/ for analysis)
 ONNX Runtime CPUExecutionProvider
 FP32 ONNX model only
-Synthetic BGE-M3-like observability texts
-Thai observability text samples
+Synthetic BGE-M3-like observability texts (English, Thai, mixed)
 JSONL result output
 Notebook loading and plotting
+Stage-separated benchmarks: tokenization, embedding, end-to-end
+Machine metadata capture (CPU, memory, runtime, container, Kubernetes, GPU placeholder)
 Metrics:
-  - model_tokens_per_sec
-  - e2e_tokens_per_sec
-  - model_embeddings_per_sec
-  - e2e_embeddings_per_sec
-  - p50/p95 latency
+  - tokenize_tokens_per_sec
+  - embedding_tokens_per_sec
+  - end_to_end_tokens_per_sec
+  - tokenize_items_per_sec
+  - embedding_items_per_sec
+  - end_to_end_items_per_sec
+  - tokenize_latency_ms_avg / p50 / p95
+  - embedding_latency_ms_avg / p50 / p95
+  - end_to_end_latency_ms_avg / p50 / p95
+  - machine_metadata (nested object)
 ```
 
 ### Excluded for Milestone 1
@@ -60,23 +66,31 @@ Thai word segmentation benchmark
 ## Target file layout
 
 ```text
-bge-m3-perf/
-  pyproject.toml
-  uv.lock
-  README.md
-  scripts/
-    bench_onnx_cpu_fp32.py
-  notebooks/
-    plot_onnx_cpu_fp32.ipynb
-  results/
-    .gitkeep
-  models/
-    bge-m3-fp32/
-      model.onnx
-      tokenizer.json
-      tokenizer_config.json
-      special_tokens_map.json
-      config.json
+benchmarks/bge_m3/
+├── README.md                         # project overview
+├── SPEC.md                          # this spec
+├── archived/                        # legacy notebooks (pre-machine_metadata schema)
+│   └── plot_onnx_cpu_fp32.ipynb
+├── notebooks/                        # independent uv project for analysis
+│   ├── pyproject.toml
+│   └── plot_onnx_cpu_fp32.ipynb   # active notebook (machine_metadata-aware)
+├── results/                         # benchmark JSONL output
+│   └── onnx_cpu_fp32.jsonl
+└── src/                             # main uv project (scripts + models)
+    ├── .python-version
+    ├── pyproject.toml
+    ├── uv.lock
+    ├── models/bge-m3-fp32/          # exported ONNX model + tokenizer
+    │   ├── model.onnx
+    │   ├── model.onnx_data
+    │   ├── config.json
+    │   ├── tokenizer.json
+    │   ├── tokenizer_config.json
+    │   └── special_tokens_map.json
+    └── scripts/
+        ├── bench_onnx_cpu_fp32.py            # milestone 1 benchmark
+        ├── bench_onnx_cpu_fp32_stage_breakdown.py  # milestone 1.1 stage-separated
+        └── machine_metadata.py                # milestone 1.2 metadata collection
 ```
 
 ---
@@ -149,11 +163,12 @@ The script should:
 1. Load tokenizer from model dir.
 2. Load ONNX model with CPUExecutionProvider.
 3. Generate synthetic English + Thai observability text batches.
-4. Tokenize with padding/truncation using the BGE-M3 tokenizer.
-5. Count real tokens with attention_mask.sum().
-6. Run warmup batches.
-7. Run measured batches.
-8. Write one JSON object to results/onnx_cpu_fp32.jsonl.
+4. Pre-tokenize once outside timing loop for embedding-only measurements.
+5. Measure three phases per batch: tokenization, embedding, end-to-end.
+6. Count real tokens with attention_mask.sum() for each batch.
+7. Run warmup batches before measured batches.
+8. Write one JSON object to ../results/onnx_cpu_fp32.jsonl (from src/ → project root → results/).
+9. Include machine_metadata from collect_machine_metadata() in result.
 ```
 
 The output should be JSONL because it is easy to append multiple benchmark runs and easy to load with pandas using `read_json(..., lines=True)`.
@@ -161,7 +176,6 @@ The output should be JSONL because it is easy to append multiple benchmark runs 
 ```python
 import argparse
 import json
-import platform
 import statistics
 import time
 from pathlib import Path
@@ -169,6 +183,8 @@ from pathlib import Path
 import numpy as np
 import onnxruntime as ort
 from transformers import AutoTokenizer
+
+from machine_metadata import collect_machine_metadata
 
 
 ENGLISH_OBSERVABILITY_TEXT = (
@@ -250,7 +266,7 @@ def main() -> None:
     parser.add_argument("--dataset", choices=["en", "th", "mixed"], default="mixed")
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--batches", type=int, default=20)
-    parser.add_argument("--out", default="results/onnx_cpu_fp32.jsonl")
+    parser.add_argument("--out", default="../results/onnx_cpu_fp32.jsonl")
     args = parser.parse_args()
 
     model_dir = Path(args.model_dir)
@@ -271,25 +287,31 @@ def main() -> None:
 
     texts = make_texts(args.batch_size, args.target_words, args.dataset)
 
+    # Pre-tokenize once (outside timing) for embedding-only phase
+    encoded = tokenizer(
+        texts,
+        padding=True,
+        truncation=True,
+        max_length=args.max_length,
+        return_tensors="np",
+    )
+    real_tokens = int(encoded["attention_mask"].sum())
+    inputs = make_inputs(session, encoded)
+
+    # Warmup
     for _ in range(args.warmup):
-        encoded = tokenizer(
-            texts,
-            padding=True,
-            truncation=True,
-            max_length=args.max_length,
-            return_tensors="np",
-        )
-        inputs = make_inputs(session, encoded)
+        tokenizer(texts, padding=True, truncation=True, max_length=args.max_length, return_tensors="np")
         session.run(None, inputs)
 
-    model_latencies = []
+    tokenize_latencies = []
+    embedding_latencies = []
     e2e_latencies = []
     total_items = 0
     total_tokens = 0
 
     for _ in range(args.batches):
-        e2e_start = time.perf_counter()
-
+        # Tokenization phase
+        tok_start = time.perf_counter()
         encoded = tokenizer(
             texts,
             padding=True,
@@ -297,22 +319,37 @@ def main() -> None:
             max_length=args.max_length,
             return_tensors="np",
         )
-
         real_tokens = int(encoded["attention_mask"].sum())
         inputs = make_inputs(session, encoded)
+        tok_elapsed = time.perf_counter() - tok_start
 
-        model_start = time.perf_counter()
+        # Embedding phase (pre-tokenized input)
+        emb_start = time.perf_counter()
         session.run(None, inputs)
-        model_elapsed = time.perf_counter() - model_start
+        emb_elapsed = time.perf_counter() - emb_start
 
+        # End-to-end phase
+        e2e_start = time.perf_counter()
+        encoded = tokenizer(
+            texts,
+            padding=True,
+            truncation=True,
+            max_length=args.max_length,
+            return_tensors="np",
+        )
+        real_tokens = int(encoded["attention_mask"].sum())
+        inputs = make_inputs(session, encoded)
+        session.run(None, inputs)
         e2e_elapsed = time.perf_counter() - e2e_start
 
-        model_latencies.append(model_elapsed)
+        tokenize_latencies.append(tok_elapsed)
+        embedding_latencies.append(emb_elapsed)
         e2e_latencies.append(e2e_elapsed)
         total_items += args.batch_size
         total_tokens += real_tokens
 
-    model_time = sum(model_latencies)
+    tokenize_time = sum(tokenize_latencies)
+    embedding_time = sum(embedding_latencies)
     e2e_time = sum(e2e_latencies)
 
     result = {
@@ -322,11 +359,6 @@ def main() -> None:
         "device": "cpu",
         "precision": "fp32",
         "dataset": args.dataset,
-        "machine": platform.node(),
-        "platform": platform.platform(),
-        "python_version": platform.python_version(),
-        "onnxruntime_version": ort.__version__,
-        "active_providers": session.get_providers(),
         "batch_size": args.batch_size,
         "max_length": args.max_length,
         "target_words": args.target_words,
@@ -335,16 +367,22 @@ def main() -> None:
         "total_items": total_items,
         "total_tokens": total_tokens,
         "avg_tokens_per_item": total_tokens / total_items,
-        "model_tokens_per_sec": total_tokens / model_time,
-        "e2e_tokens_per_sec": total_tokens / e2e_time,
-        "model_embeddings_per_sec": total_items / model_time,
-        "e2e_embeddings_per_sec": total_items / e2e_time,
-        "model_latency_ms_avg": statistics.mean(model_latencies) * 1000,
-        "model_latency_ms_p50": percentile(model_latencies, 0.50) * 1000,
-        "model_latency_ms_p95": percentile(model_latencies, 0.95) * 1000,
-        "e2e_latency_ms_avg": statistics.mean(e2e_latencies) * 1000,
-        "e2e_latency_ms_p50": percentile(e2e_latencies, 0.50) * 1000,
-        "e2e_latency_ms_p95": percentile(e2e_latencies, 0.95) * 1000,
+        "tokenize_tokens_per_sec": total_tokens / tokenize_time,
+        "embedding_tokens_per_sec": total_tokens / embedding_time,
+        "end_to_end_tokens_per_sec": total_tokens / e2e_time,
+        "tokenize_items_per_sec": total_items / tokenize_time,
+        "embedding_items_per_sec": total_items / embedding_time,
+        "end_to_end_items_per_sec": total_items / e2e_time,
+        "tokenize_latency_ms_avg": statistics.mean(tokenize_latencies) * 1000,
+        "tokenize_latency_ms_p50": percentile(tokenize_latencies, 0.50) * 1000,
+        "tokenize_latency_ms_p95": percentile(tokenize_latencies, 0.95) * 1000,
+        "embedding_latency_ms_avg": statistics.mean(embedding_latencies) * 1000,
+        "embedding_latency_ms_p50": percentile(embedding_latencies, 0.50) * 1000,
+        "embedding_latency_ms_p95": percentile(embedding_latencies, 0.95) * 1000,
+        "end_to_end_latency_ms_avg": statistics.mean(e2e_latencies) * 1000,
+        "end_to_end_latency_ms_p50": percentile(e2e_latencies, 0.50) * 1000,
+        "end_to_end_latency_ms_p95": percentile(e2e_latencies, 0.95) * 1000,
+        "machine_metadata": collect_machine_metadata(session=session),
     }
 
     with out_path.open("a", encoding="utf-8") as f:
@@ -370,22 +408,24 @@ uv run python scripts/bench_onnx_cpu_fp32.py \
   --target-words 64 \
   --warmup 1 \
   --batches 2 \
-  --out results/onnx_cpu_fp32.jsonl
+        --out ../results/onnx_cpu_fp32.jsonl
 ```
 
 Acceptance criteria:
 
 ```text
 - Script exits 0.
-- results/onnx_cpu_fp32.jsonl exists.
+- ../results/onnx_cpu_fp32.jsonl exists.
 - JSON contains Thai text safely through ensure_ascii=False output handling.
 - JSON contains:
   - dataset
-  - model_tokens_per_sec
-  - e2e_tokens_per_sec
-  - model_embeddings_per_sec
-  - e2e_embeddings_per_sec
-  - model_latency_ms_p95
+  - tokenize_tokens_per_sec
+  - embedding_tokens_per_sec
+  - end_to_end_tokens_per_sec
+  - tokenize_latency_ms_p95
+  - embedding_latency_ms_p95
+  - end_to_end_latency_ms_p95
+  - machine_metadata (nested object with cpu, memory, host, runtime, container, kubernetes, gpu)
 ```
 
 ---
@@ -395,7 +435,7 @@ Acceptance criteria:
 Keep it small for Milestone 1:
 
 ```bash
-rm -f results/onnx_cpu_fp32.jsonl
+rm -f ../results/onnx_cpu_fp32.jsonl
 
 for dataset in en th mixed; do
   for bs in 1 8 16 32; do
@@ -408,7 +448,7 @@ for dataset in en th mixed; do
         --target-words "$len" \
         --warmup 5 \
         --batches 20 \
-        --out results/onnx_cpu_fp32.jsonl
+  --out ../results/onnx_cpu_fp32.jsonl
     done
   done
 done
@@ -417,7 +457,7 @@ done
 Acceptance criteria:
 
 ```bash
-wc -l results/onnx_cpu_fp32.jsonl
+wc -l ../results/onnx_cpu_fp32.jsonl
 ```
 
 Expected:
@@ -428,186 +468,59 @@ Expected:
 
 ---
 
-## Task 6 — Create plotting notebook
+## Task 6 — Notebooks
 
-Create:
+The project has two notebooks:
 
 ```text
-archived/plot_onnx_cpu_fp32.ipynb
+notebooks/plot_onnx_cpu_fp32.ipynb    # active, machine_metadata-aware
+archived/plot_onnx_cpu_fp32.ipynb     # legacy, pre-machine_metadata schema
 ```
 
-Launch notebook with uv:
+Both use `!uv pip install` and `pandas`/`matplotlib` for analysis.
+
+Launch the active notebook:
 
 ```bash
-uv run jupyter notebook archived/plot_onnx_cpu_fp32.ipynb
+cd benchmarks/bge_m3
+uv run jupyter notebook notebooks/plot_onnx_cpu_fp32.ipynb
 ```
 
-### Cell 1 — Load results
+The active notebook loads results from `../results/onnx_cpu_fp32.jsonl` (relative to `notebooks/`).
 
-```python
-from pathlib import Path
+Key notebook sections:
+- Machine metadata summary (CPU model, cores, AVX flags, RAM, container/K8s)
+- Full metrics table with tokenize / embedding / end-to-end breakdown
+- Throughput bar chart (3 metrics per run)
+- p95 latency bar chart
+- Tokenization overhead ratio
+- Grouped summary by machine config + benchmark params
+- Batch scaling analysis by dataset
 
-import pandas as pd
-import matplotlib.pyplot as plt
-
-result_path = Path("../results/onnx_cpu_fp32.jsonl")
-
-df = pd.read_json(result_path, lines=True)
-df.head()
-```
-
-### Cell 2 — Show clean table
-
-```python
-cols = [
-    "machine",
-    "runtime",
-    "provider",
-    "precision",
-    "dataset",
-    "batch_size",
-    "max_length",
-    "avg_tokens_per_item",
-    "model_tokens_per_sec",
-    "e2e_tokens_per_sec",
-    "model_embeddings_per_sec",
-    "e2e_embeddings_per_sec",
-    "model_latency_ms_p95",
-]
-
-df[cols].sort_values(["dataset", "max_length", "batch_size"])
-```
-
-### Cell 3 — Plot model tokens/sec
-
-```python
-plot_df = df.copy()
-plot_df["run"] = (
-    plot_df["dataset"]
-    + ", bs=" + plot_df["batch_size"].astype(str)
-    + ", len=" + plot_df["max_length"].astype(str)
-)
-
-ax = plot_df.plot.bar(
-    x="run",
-    y="model_tokens_per_sec",
-    figsize=(16, 5),
-    legend=False,
-)
-
-ax.set_title("BGE-M3 ONNX CPU FP32: model tokens/sec")
-ax.set_xlabel("Benchmark run")
-ax.set_ylabel("tokens/sec")
-plt.xticks(rotation=60, ha="right")
-plt.tight_layout()
-plt.show()
-```
-
-### Cell 4 — Plot e2e tokens/sec
-
-```python
-ax = plot_df.plot.bar(
-    x="run",
-    y="e2e_tokens_per_sec",
-    figsize=(16, 5),
-    legend=False,
-)
-
-ax.set_title("BGE-M3 ONNX CPU FP32: end-to-end tokens/sec")
-ax.set_xlabel("Benchmark run")
-ax.set_ylabel("tokens/sec")
-plt.xticks(rotation=60, ha="right")
-plt.tight_layout()
-plt.show()
-```
-
-### Cell 5 — Plot embeddings/sec
-
-```python
-ax = plot_df.plot.bar(
-    x="run",
-    y="model_embeddings_per_sec",
-    figsize=(16, 5),
-    legend=False,
-)
-
-ax.set_title("BGE-M3 ONNX CPU FP32: model embeddings/sec")
-ax.set_xlabel("Benchmark run")
-ax.set_ylabel("embeddings/sec")
-plt.xticks(rotation=60, ha="right")
-plt.tight_layout()
-plt.show()
-```
-
-### Cell 6 — Pivot by dataset, token length, and batch size
-
-```python
-summary = (
-    df.groupby(["dataset", "max_length", "batch_size"], as_index=False)
-      .agg(
-          model_tokens_per_sec=("model_tokens_per_sec", "median"),
-          e2e_tokens_per_sec=("e2e_tokens_per_sec", "median"),
-          model_embeddings_per_sec=("model_embeddings_per_sec", "median"),
-          model_latency_ms_p95=("model_latency_ms_p95", "median"),
-          avg_tokens_per_item=("avg_tokens_per_item", "median"),
-      )
-)
-
-summary
-```
-
-### Cell 7 — Plot batch scaling by dataset
-
-```python
-for dataset in sorted(summary["dataset"].unique()):
-    subset = summary[summary["dataset"] == dataset]
-    pivot = subset.pivot_table(
-        index="batch_size",
-        columns="max_length",
-        values="model_tokens_per_sec",
-    )
-
-    ax = pivot.plot(figsize=(10, 5), marker="o")
-    ax.set_title(f"BGE-M3 ONNX CPU FP32: batch scaling, dataset={dataset}")
-    ax.set_xlabel("batch_size")
-    ax.set_ylabel("model_tokens_per_sec")
-    plt.tight_layout()
-    plt.show()
-```
-
-### Cell 8 — Compare English vs Thai vs mixed
-
-```python
-pivot = summary.pivot_table(
-    index=["max_length", "batch_size"],
-    columns="dataset",
-    values="model_tokens_per_sec",
-)
-
-pivot
-```
+The archived notebook shows the legacy schema without machine metadata.
 
 ---
 
 ## Milestone 1 Definition of Done
 
 ```text
-- Repository has pyproject.toml and uv.lock.
+- Repository has pyproject.toml and uv.lock in src/.
 - Dependencies are installed with uv add / uv sync.
 - Script is run with uv run.
-- Repository has scripts/bench_onnx_cpu_fp32.py.
+- Repository has scripts/bench_onnx_cpu_fp32.py with stage-separated timing.
 - Script runs ONNX Runtime with CPUExecutionProvider only.
 - Script writes JSONL results with ensure_ascii=False.
 - Script supports dataset=en, dataset=th, and dataset=mixed.
 - Thai benchmark samples are included directly in the script.
-- Result includes tokens/sec, embeddings/sec, latency, dataset, batch size, and max length.
-- Notebook loads JSONL using pandas.
-- Notebook plots:
-  - model_tokens_per_sec
-  - e2e_tokens_per_sec
-  - model_embeddings_per_sec
-  - batch scaling by max_length and dataset
-- README documents the uv setup, smoke test, and matrix command.
+- Result includes stage-separated metrics:
+  - tokenize_tokens_per_sec, embedding_tokens_per_sec, end_to_end_tokens_per_sec
+  - tokenize_items_per_sec, embedding_items_per_sec, end_to_end_items_per_sec
+  - tokenize_latency_ms_p95, embedding_latency_ms_p95, end_to_end_latency_ms_p95
+- Result includes machine_metadata (nested object with cpu, memory, host, runtime, container, kubernetes, gpu).
+- notebooks/ directory has its own pyproject.toml.
+- Notebooks use !uv pip install (no fallback).
+- Active notebook loads results from ../results/onnx_cpu_fp32.jsonl.
+- README documents the uv setup, smoke test, matrix command, and project layout.
 ```
 
 ---
@@ -623,25 +536,34 @@ commit 5: add plotting notebook
 commit 6: add sample result JSONL if acceptable for repo
 ```
 
-## Next milestone after this
+## Next milestones
 
 ```text
-Milestone 2:
-  Add ONNX CPU INT8 comparison using the same result schema.
+Milestone 1.3 (DONE):
+  Add benchmark validation — scripts/validation.py module with:
+    - extract_embeddings() with mean pooling fallback
+    - validate_embeddings() for shape/NaN/Inf/norm
+    - validate_against_reference() for self-comparison cosine similarity
+    - validate_retrieval_overlap() for self-retrieval top-k overlap
+    - 10-text English/Thai/mixed validation corpus
+    - Integration into bench_onnx_cpu_fp32.py with --validate CLI flag
+    - Notebook Step 7: validation summary table + failed rows + norm plot
 
-Milestone 3:
-  Add ONNX CUDA FP32/FP16.
+Milestone 1.4:
+  Add ONNX CPU INT8 comparison using the same metadata schema.
 
-Milestone 4:
-  Add OpenVINO CPU FP32/INT8.
+Milestone 1.5:
+  Add ONNX CUDA FP32/FP16 with GPU metadata enabled.
 
-Milestone 5:
-  Add Docker image and Kubernetes Job.
+Milestone 1.6:
+  Add Docker image and Kubernetes Job using metadata env vars.
 ```
 
 ---
 
 ## References
 
+- `docs/bge_m3_benchmark/bge_m3_milestone_1_1_tokenize_embedding_split.md` — stage-separated benchmark specification
+- `docs/bge_m3_benchmark/bge_m3_milestone_1_2_machine_metadata.md` — machine metadata capture specification
 - uv manages Python projects with `pyproject.toml`, virtual environments, and `uv.lock`; project commands include `uv run`, `uv sync`, and `uv lock`.
 - PyThaiNLP provides Thai tokenization tools, but Milestone 1 does not compare against it. The benchmark uses BGE-M3 tokenizer counts only.

@@ -10,6 +10,13 @@ import onnxruntime as ort
 from transformers import AutoTokenizer
 
 from machine_metadata import collect_machine_metadata, flatten_machine_metadata
+from validation import (
+    extract_embeddings,
+    validate_embeddings,
+    validate_against_reference,
+    validate_retrieval_overlap,
+    VALIDATION_TEXTS,
+)
 
 warnings.filterwarnings("ignore", message=".*regex pattern.*")
 
@@ -92,6 +99,10 @@ def main() -> None:
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--batches", type=int, default=20)
     parser.add_argument("--out", default="../results/onnx_cpu_fp32.jsonl")
+    parser.add_argument("--validate", action="store_true", default=True)
+    parser.add_argument("--no-validate", dest="validate", action="store_false")
+    parser.add_argument("--expected-embedding-dim", type=int, default=1024)
+    parser.add_argument("--no-normalize", dest="normalize", action="store_false", default=True)
     args = parser.parse_args()
 
     for name, val in [
@@ -146,6 +157,72 @@ def main() -> None:
             return_tensors="np",
         )
         session.run(None, inputs_warmup)
+
+    validation_result = {}
+    if args.validate:
+        validation_texts = VALIDATION_TEXTS
+        encoded_val = tokenizer(
+            validation_texts,
+            padding=True,
+            truncation=True,
+            max_length=args.max_length,
+            return_tensors="np",
+        )
+        inputs_val = make_inputs(session, encoded_val)
+
+        outputs_ref = session.run(None, inputs_val)
+        output_names = [o.name for o in session.get_outputs()]
+        output_shapes = [list(o.shape) for o in outputs_ref]
+        attention_mask_val = encoded_val["attention_mask"]
+
+        ref_embeddings, extraction_method_ref = extract_embeddings(
+            outputs=outputs_ref,
+            output_names=output_names,
+            attention_mask=attention_mask_val,
+            normalize=args.normalize,
+        )
+
+        outputs_candidate = session.run(None, inputs_val)
+        cand_embeddings, extraction_method_cand = extract_embeddings(
+            outputs=outputs_candidate,
+            output_names=output_names,
+            attention_mask=attention_mask_val,
+            normalize=args.normalize,
+        )
+
+        emb_validation = validate_embeddings(
+            embeddings=cand_embeddings,
+            expected_batch_size=len(validation_texts),
+            expected_embedding_dim=args.expected_embedding_dim,
+            require_normalized=args.normalize,
+        )
+
+        ref_validation = validate_against_reference(cand_embeddings, ref_embeddings)
+
+        retrieval_validation = validate_retrieval_overlap(cand_embeddings, ref_embeddings)
+
+        combined_errors = (
+            emb_validation.get("validation_errors", [])
+            + ref_validation.get("reference_validation_errors", [])
+            + retrieval_validation.get("retrieval_validation_errors", [])
+        )
+        all_passed = (
+            emb_validation.get("validation_passed", False)
+            and ref_validation.get("reference_validation_passed", False)
+            and retrieval_validation.get("retrieval_validation_passed", False)
+        )
+
+        validation_result = {
+            "validation_enabled": True,
+            "validation_passed": all_passed,
+            "onnx_output_names": output_names,
+            "onnx_output_shapes": output_shapes,
+            "embedding_extraction_method": extraction_method_cand,
+        }
+        validation_result.update(emb_validation)
+        validation_result.update(ref_validation)
+        validation_result.update(retrieval_validation)
+        validation_result["validation_errors"] = combined_errors
 
     # Phase 1: Tokenization-only
     tokenize_latencies = []
@@ -244,6 +321,8 @@ def main() -> None:
         "machine_metadata": machine_metadata,
     }
     result.update(flatten_machine_metadata(machine_metadata))
+    if validation_result:
+        result.update(validation_result)
 
     with out_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(result, ensure_ascii=False) + "\n")
