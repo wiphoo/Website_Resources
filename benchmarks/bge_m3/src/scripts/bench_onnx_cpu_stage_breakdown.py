@@ -162,13 +162,13 @@ def main() -> None:
     if args.warmup < 0:
         parser.error(f"--warmup must be >= 0 (got {args.warmup})")
 
-    if args.precision == "int8" and (
+    if args.validate and args.precision == "int8" and (
         not args.reference_model_dir
         or Path(args.reference_model_dir) == Path(args.model_dir)
     ):
         parser.error(
             "--reference-model-dir (FP32) is required and must differ from "
-            "--model-dir when --precision int8; otherwise INT8 validates against itself"
+            "--model-dir when --precision int8 with validation enabled"
         )
 
     model_dir = Path(args.model_dir)
