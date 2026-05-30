@@ -90,6 +90,24 @@ def make_inputs(session: ort.InferenceSession, encoded) -> dict[str, np.ndarray]
 
 
 def build_quantization_metadata(args: argparse.Namespace) -> dict:
+    """
+    Build the ``quantization`` metadata dict for the result JSON from CLI arguments.
+
+    When ``args.precision == "int8"``, returns a dict with full quantization
+    metadata (method, weight_type, activation_type, calibration, source variant).
+    When ``args.precision == "fp32"``, returns a dict with all quantization
+    fields set to ``None`` (quantization not applicable to FP32 runs).
+
+    :param args: Parsed CLI arguments from :func:`argparse.ArgumentParser.parse_args`.
+    :returns: Dict with keys:
+        - enabled (bool)
+        - method (str | None)
+        - weight_type (str | None)
+        - activation_type (str | None)
+        - calibration_enabled (bool)
+        - calibration_dataset (str | None)
+        - source_model_variant (str | None)
+    """
     if args.precision == "int8":
         return {
             "enabled": True,
