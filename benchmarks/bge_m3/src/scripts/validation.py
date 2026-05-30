@@ -360,7 +360,7 @@ def validate_retrieval_overlap(
     :param reference_embeddings: Reference embedding ndarray (N, D).
     :param max_length: Sequence max_length; used to select top10 threshold for INT8.
     :param top_k_values: List of k values to test (default [1, 3, 5, 10]).
-    :param is_int8: If True, apply :data:`INT8_PER_LENGTH_THRESHOLDS` for top-10 threshold.
+    :param is_int8: If True, apply :data:`INT8_PER_LENGTH_THRESHOLDS` for top-10 threshold; non-INT8 runs enforce a fixed top-5 gate (>=0.99).
     :returns: Dict with keys:
         - retrieval_top{k}_overlap for each k in ``top_k_values``
         - retrieval_top10_overlap_threshold (only when is_int8=True)
@@ -402,10 +402,12 @@ def validate_retrieval_overlap(
         value = float(np.mean(overlaps))
         result[f"retrieval_top{k}_overlap"] = value
 
-        if threshold_key is not None:
+        if is_int8 and k == 10 and threshold_key is not None:
             top10_threshold = INT8_PER_LENGTH_THRESHOLDS[threshold_key]["top10_overlap_min"]
-            if k == 10 and value < top10_threshold:
+            if value < top10_threshold:
                 errors.append(f"retrieval_top10_overlap too low: {value} < {top10_threshold}")
+        elif not is_int8 and k == 5 and value < 0.99:
+            errors.append(f"retrieval_top5_overlap too low: {value} < 0.99")
 
     if threshold_key is not None:
         result["retrieval_top10_overlap_threshold"] = INT8_PER_LENGTH_THRESHOLDS[threshold_key]["top10_overlap_min"]
