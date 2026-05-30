@@ -12,7 +12,7 @@ rm -f "$PROJECT_DIR/results/onnx_cpu_int8_stage_breakdown.jsonl"
 
 for dataset in en th mixed; do
   for bs in 1 8 16 32; do
-    for len in 64 128; do
+    for len in 32 128 512; do
       uv run python scripts/bench_onnx_cpu_stage_breakdown.py \
         --model-dir models/bge-m3-fp32 \
         --precision fp32 \
