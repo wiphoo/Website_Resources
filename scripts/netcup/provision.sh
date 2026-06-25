@@ -8,6 +8,76 @@ SSH_HOSTNAME="ssh.example.com"
 
 export DEBIAN_FRONTEND=noninteractive
 
+: "${USERNAME:?USERNAME is required}"
+: "${SSH_PUBKEY:?SSH_PUBKEY is required}"
+: "${TUNNEL_TOKEN:?TUNNEL_TOKEN is required}"
+
+log() {
+  echo "[custom-script] $*"
+}
+
+wait_for_apt() {
+  log "Waiting for apt/dpkg locks..."
+
+  # Wait for systemd apt services if they are running
+  systemctl is-active --quiet apt-daily.service && systemctl wait apt-daily.service || true
+  systemctl is-active --quiet apt-daily-upgrade.service && systemctl wait apt-daily-upgrade.service || true
+
+  # Wait for common apt/dpkg lock holders
+  local locks=(
+    /var/lib/dpkg/lock
+    /var/lib/dpkg/lock-frontend
+    /var/lib/apt/lists/lock
+    /var/cache/apt/archives/lock
+  )
+
+  local timeout=600
+  local waited=0
+
+  while true; do
+    local locked=0
+
+    for lock in "${locks[@]}"; do
+      if fuser "$lock" >/dev/null 2>&1; then
+        locked=1
+        break
+      fi
+    done
+
+    if [ "$locked" -eq 0 ]; then
+      break
+    fi
+
+    if [ "$waited" -ge "$timeout" ]; then
+      log "APT lock still held after ${timeout}s"
+      ps aux | grep -E 'apt|dpkg|unattended' | grep -v grep || true
+      exit 100
+    fi
+
+    sleep 5
+    waited=$((waited + 5))
+  done
+
+  dpkg --configure -a || true
+  log "APT/dpkg is ready."
+}
+
+apt_update() {
+  wait_for_apt
+  apt-get update
+}
+
+apt_install() {
+  wait_for_apt
+  apt-get install -y \
+    -o DPkg::Lock::Timeout=600 \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    "$@"
+}
+
+log "Starting netcup post-install script."
+
 # Fix DNS for netcup IPv6-only install environment
 install -d -m 0755 /etc/systemd/resolved.conf.d
 
@@ -21,8 +91,8 @@ EOF
 systemctl restart systemd-resolved || true
 sleep 3
 
-apt-get update
-apt-get install -y curl gpg ca-certificates openssh-server sudo
+apt_update
+apt_install curl gpg ca-certificates openssh-server sudo
 
 # Create user
 if ! id "${USERNAME}" >/dev/null 2>&1; then
@@ -30,6 +100,7 @@ if ! id "${USERNAME}" >/dev/null 2>&1; then
 fi
 
 install -d -m 700 -o "${USERNAME}" -g "${USERNAME}" "/home/${USERNAME}/.ssh"
+
 printf '%s\n' "${SSH_PUBKEY}" > "/home/${USERNAME}/.ssh/authorized_keys"
 chown "${USERNAME}:${USERNAME}" "/home/${USERNAME}/.ssh/authorized_keys"
 chmod 600 "/home/${USERNAME}/.ssh/authorized_keys"
@@ -38,6 +109,7 @@ chmod 600 "/home/${USERNAME}/.ssh/authorized_keys"
 cat > "/etc/sudoers.d/90-${USERNAME}" <<EOF
 ${USERNAME} ALL=(ALL) NOPASSWD:ALL
 EOF
+
 chmod 0440 "/etc/sudoers.d/90-${USERNAME}"
 visudo -cf "/etc/sudoers.d/90-${USERNAME}"
 
@@ -75,16 +147,17 @@ cat > /etc/apt/sources.list.d/cloudflared.list <<'EOF'
 deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main
 EOF
 
-apt-get update
-apt-get install -y cloudflared
+apt_update
+apt_install cloudflared
 
 # Configure cloudflared
 install -d -m 0755 /etc/cloudflared
 
-install -m 0600 /dev/null /etc/cloudflared/token.env
 cat > /etc/cloudflared/token.env <<EOF
 TUNNEL_TOKEN="${TUNNEL_TOKEN}"
 EOF
+
+chmod 0600 /etc/cloudflared/token.env
 
 cat > /etc/systemd/system/cloudflared-tunnel.service <<'EOF'
 [Unit]
@@ -95,7 +168,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/cloudflared/token.env
-ExecStart=/usr/bin/cloudflared tunnel --edge-ip-version 6 --no-autoupdate run
+ExecStart=/usr/bin/cloudflared tunnel --edge-ip-version 6 --no-autoupdate run --token ${TUNNEL_TOKEN}
 Restart=always
 RestartSec=10s
 
@@ -106,4 +179,4 @@ EOF
 systemctl daemon-reload
 systemctl enable --now cloudflared-tunnel
 
-echo "netcup post-install script completed successfully."
+log "netcup post-install script completed successfully."
