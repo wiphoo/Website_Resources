@@ -82,14 +82,6 @@ TUNNEL_TOKEN="${TUNNEL_TOKEN}"
 EOF
 chmod 0600 /etc/cloudflared/token.env
 
-cat > /etc/cloudflared/config.yml <<EOF
-ingress:
-  - hostname: "${SSH_HOSTNAME}"
-    service: tcp://[::1]:22
-  - service: http_status:404
-EOF
-chmod 0600 /etc/cloudflared/config.yml
-
 cat > /etc/systemd/system/cloudflared-tunnel.service <<'EOF'
 [Unit]
 Description=Cloudflare Tunnel for SSH
@@ -99,7 +91,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/cloudflared/token.env
-ExecStart=/usr/bin/cloudflared tunnel --edge-ip-version 6 --no-autoupdate --config /etc/cloudflared/config.yml run --token ${TUNNEL_TOKEN}
+ExecStart=/usr/bin/cloudflared tunnel --edge-ip-version 6 --no-autoupdate run --token ${TUNNEL_TOKEN}
 Restart=always
 RestartSec=10s
 
