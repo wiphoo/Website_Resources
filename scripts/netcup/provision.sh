@@ -39,6 +39,7 @@ cat > "/etc/sudoers.d/90-${USERNAME}" <<EOF
 ${USERNAME} ALL=(ALL) NOPASSWD:ALL
 EOF
 chmod 0440 "/etc/sudoers.d/90-${USERNAME}"
+visudo -cf "/etc/sudoers.d/90-${USERNAME}"
 
 # SSH hardening
 install -d -m 755 /etc/ssh/sshd_config.d
@@ -58,12 +59,15 @@ systemctl restart ssh
 # Install cloudflared from Cloudflare APT repo
 install -d -m 0755 /usr/share/keyrings
 
-curl -fsSL "https://pkg.cloudflare.com/cloudflare-main.gpg" \
-  -o /tmp/cloudflare-main.gpg
+cloudflare_key="$(mktemp)"
+trap 'rm -f "${cloudflare_key}"' EXIT
 
-gpg --dearmor \
+curl -fsSL "https://pkg.cloudflare.com/cloudflare-main.gpg" \
+  -o "${cloudflare_key}"
+
+gpg --batch --yes --dearmor \
   -o /usr/share/keyrings/cloudflare-main.gpg \
-  /tmp/cloudflare-main.gpg
+  "${cloudflare_key}"
 
 chmod 0644 /usr/share/keyrings/cloudflare-main.gpg
 
@@ -77,10 +81,10 @@ apt-get install -y cloudflared
 # Configure cloudflared
 install -d -m 0755 /etc/cloudflared
 
+install -m 0600 /dev/null /etc/cloudflared/token.env
 cat > /etc/cloudflared/token.env <<EOF
 TUNNEL_TOKEN="${TUNNEL_TOKEN}"
 EOF
-chmod 0600 /etc/cloudflared/token.env
 
 cat > /etc/systemd/system/cloudflared-tunnel.service <<'EOF'
 [Unit]
@@ -91,7 +95,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/cloudflared/token.env
-ExecStart=/usr/bin/cloudflared tunnel --edge-ip-version 6 --no-autoupdate run --token ${TUNNEL_TOKEN}
+ExecStart=/usr/bin/cloudflared tunnel --edge-ip-version 6 --no-autoupdate run
 Restart=always
 RestartSec=10s
 
