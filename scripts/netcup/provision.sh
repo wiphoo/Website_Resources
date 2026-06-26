@@ -14,10 +14,6 @@ log() {
 wait_for_apt() {
   log "Waiting for apt/dpkg locks..."
 
-  # Wait for systemd apt services if they are running
-  systemctl is-active --quiet apt-daily.service && systemctl wait apt-daily.service || true
-  systemctl is-active --quiet apt-daily-upgrade.service && systemctl wait apt-daily-upgrade.service || true
-
   # Wait for common apt/dpkg lock holders
   local locks=(
     /var/lib/dpkg/lock
