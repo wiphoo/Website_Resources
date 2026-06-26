@@ -1,16 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-USERNAME="me"
-SSH_PUBKEY="ssh-ed25519 AAAA... you@laptop"
-TUNNEL_TOKEN="YOUR_CLOUDFLARE_TUNNEL_TOKEN"
-SSH_HOSTNAME="ssh.example.com"
+USERNAME="${USERNAME:-me}"
+SSH_PUBKEY="${SSH_PUBKEY:?SSH_PUBKEY is required}"
+TUNNEL_TOKEN="${TUNNEL_TOKEN:?TUNNEL_TOKEN is required}"
 
 export DEBIAN_FRONTEND=noninteractive
-
-: "${USERNAME:?USERNAME is required}"
-: "${SSH_PUBKEY:?SSH_PUBKEY is required}"
-: "${TUNNEL_TOKEN:?TUNNEL_TOKEN is required}"
 
 log() {
   echo "[custom-script] $*"
@@ -34,20 +29,7 @@ wait_for_apt() {
   local timeout=600
   local waited=0
 
-  while true; do
-    local locked=0
-
-    for lock in "${locks[@]}"; do
-      if fuser "$lock" >/dev/null 2>&1; then
-        locked=1
-        break
-      fi
-    done
-
-    if [ "$locked" -eq 0 ]; then
-      break
-    fi
-
+  while fuser "${locks[@]}" >/dev/null 2>&1; do
     if [ "$waited" -ge "$timeout" ]; then
       log "APT lock still held after ${timeout}s"
       ps aux | grep -E 'apt|dpkg|unattended' | grep -v grep || true
@@ -58,13 +40,13 @@ wait_for_apt() {
     waited=$((waited + 5))
   done
 
-  dpkg --configure -a || true
+  dpkg --configure -a
   log "APT/dpkg is ready."
 }
 
 apt_update() {
   wait_for_apt
-  apt-get update
+  apt-get update -o DPkg::Lock::Timeout=600
 }
 
 apt_install() {
@@ -114,7 +96,7 @@ chmod 0440 "/etc/sudoers.d/90-${USERNAME}"
 visudo -cf "/etc/sudoers.d/90-${USERNAME}"
 
 # SSH hardening
-install -d -m 755 /etc/ssh/sshd_config.d
+install -d -m 0755 /etc/ssh/sshd_config.d
 
 cat > /etc/ssh/sshd_config.d/99-hardening.conf <<'EOF'
 PasswordAuthentication no
@@ -125,7 +107,7 @@ AddressFamily inet6
 EOF
 
 sshd -t
-systemctl enable --now ssh
+systemctl enable ssh
 systemctl restart ssh
 
 # Install cloudflared from Cloudflare APT repo
@@ -152,12 +134,11 @@ apt_install cloudflared
 
 # Configure cloudflared
 install -d -m 0755 /etc/cloudflared
+install -m 0600 /dev/null /etc/cloudflared/token.env
 
 cat > /etc/cloudflared/token.env <<EOF
 TUNNEL_TOKEN="${TUNNEL_TOKEN}"
 EOF
-
-chmod 0600 /etc/cloudflared/token.env
 
 cat > /etc/systemd/system/cloudflared-tunnel.service <<'EOF'
 [Unit]
@@ -168,7 +149,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/cloudflared/token.env
-ExecStart=/usr/bin/cloudflared tunnel --edge-ip-version 6 --no-autoupdate run --token ${TUNNEL_TOKEN}
+ExecStart=/usr/bin/cloudflared tunnel --edge-ip-version 6 --no-autoupdate run
 Restart=always
 RestartSec=10s
 
