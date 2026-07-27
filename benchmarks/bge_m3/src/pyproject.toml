@@ -1,7 +1,7 @@
 [project]
 name = "bge-m3-perf"
-version = "0.1.0"
-description = "BGE-M3 ONNX CPU FP32 Benchmark"
+version = "0.2.0"
+description = "BGE-M3 ONNX CPU FP32/INT8 Benchmark"
 requires-python = ">=3.14"
 dependencies = [
     "jupyter>=1.1.1",
